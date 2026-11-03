@@ -2,7 +2,7 @@
    The page is fetched network-first, so a new version shows up on the next launch
    whenever the iPad is online, and the cached copy is used offline. Icons and the
    MP4 muxer library are cache-first. Bump CACHE (v1 -> v2 -> ...) to drop old files. */
-const CACHE = 'stopmotion-v1';
+const CACHE = 'stopmotion-v2';
 const MUXER = 'https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.min.js';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 
@@ -33,8 +33,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
       try {
-        const res = await fetchWithTimeout(req, 4000);
-        if (res && res.ok) cache.put('./index.html', res.clone());          // remember the newest page
+        // no-cache: check with the server every launch (GitHub Pages lets browsers keep pages 10 min)
+        let res = await fetchWithTimeout(new Request(req.url, { cache: 'no-cache', credentials: 'same-origin' }), 4000);
+        if (res.redirected) res = new Response(await res.blob(), { status: res.status, statusText: res.statusText, headers: res.headers });
+        if (res.ok) cache.put('./index.html', res.clone());                  // remember the newest page
         return res;
       } catch (e) {
         return (await cache.match('./index.html')) || (await cache.match('./')) || Response.error();

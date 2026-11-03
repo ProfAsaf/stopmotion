@@ -73,7 +73,7 @@ body[data-screen=play] #play{display:grid}
 .icon-btn b.off{background:var(--panel3);color:var(--muted)}
 .title-btn{font-weight:800;font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:45%;padding:6px 8px;border-radius:10px}
 .spacer{flex:1}
-#stage{grid-area:stage;position:relative;background:#000;border-radius:16px;overflow:hidden;margin:0 6px 0 12px}
+#stage{grid-area:stage;position:relative;background:#000;overflow:hidden;margin:0 6px 0 12px}
 #stage video,#stage .ghost,#glowCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 .ghost{opacity:.45;pointer-events:none}
 #ghost2{opacity:.22}
@@ -87,8 +87,9 @@ body.glow .ghost{visibility:hidden}
 #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
 #flash.go{animation:flash .35s ease-out}
 @keyframes flash{from{opacity:.85}to{opacity:0}}
-.stage-msg{position:absolute;inset:0;display:grid;place-items:center;background:rgba(10,6,22,.86);padding:24px;text-align:center;overflow-y:auto}
-.stage-msg .box{max-width:540px}
+.stage-msg{position:absolute;inset:0;display:flex;flex-direction:column;background:rgba(10,6,22,.86);padding:24px;text-align:center;overflow-y:auto}
+.stage-msg .box{max-width:540px;margin:auto}
+.stage-msg .detail{margin:16px 0 0;font-size:12px;color:var(--muted);opacity:.8;-webkit-user-select:text;user-select:text;word-break:break-word}
 .stage-msg h2{margin:0 0 10px;font-size:26px}
 .stage-msg p{margin:0 0 16px;color:var(--muted);font-size:17px;line-height:1.45}
 .tips{text-align:left;margin:0 0 18px;padding-left:24px;font-size:17px;line-height:1.45}
@@ -239,9 +240,10 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
     </div></div>
 
     <div id="camMsg" class="stage-msg" hidden><div class="box">
-      <h2>No camera yet</h2>
+      <h2 id="camMsgTitle">No camera yet</h2>
       <p id="camMsgText"></p>
       <button class="pill primary" id="camRetry">Try again</button>
+      <p class="detail" id="camMsgDetail"></p>
     </div></div>
 
     <div id="tipsMsg" class="stage-msg" hidden><div class="box">
@@ -347,6 +349,7 @@ const MAX_SIDE = 1920;   // longest side of a saved photo
 const SMALL_W = 160;     // width of the tiny copies used to watch the camera
 const FPS_CHOICES = [5, 8, 10, 12, 15];
 const TICK_MS = 120;     // how often the camera is checked
+const VERSION = 2;       // shown on the home screen, so you can tell an update arrived
 
 const ICONS = {
   home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/>',
@@ -500,6 +503,8 @@ const Motion = {
   listening: false,
   // On iPad this must be called straight from a tap (Safari asks permission once).
   request() {
+    if (this.asked) return;
+    this.asked = true;
     try {
       if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
         DeviceMotionEvent.requestPermission().then((r) => { if (r === 'granted') this.listen(); }).catch(() => {});
@@ -781,7 +786,8 @@ const S = {
 };
 
 function show(screen) { S.screen = screen; document.body.dataset.screen = screen; }
-function primeGestures() { if (Settings.v.bumpWatch) Motion.request(); Sound.unlock(); }
+// Motion permission is only asked on the shoot screen, so it never lands on top of the camera prompt.
+function primeGestures() { Sound.unlock(); if (S.screen === 'shoot' && Settings.v.bumpWatch) Motion.request(); }
 
 const Wake = {
   lock: null,
@@ -806,7 +812,7 @@ async function renderHome() {
   const add = document.createElement('button');
   add.className = 'card new';
   add.innerHTML = `<span class="plus">${icon('plus')}</span><span>New movie</span>`;
-  add.onclick = () => { primeGestures(); newMovie(movies); };
+  add.onclick = () => { primeGestures(); requestCamera().catch(() => {}); newMovie(movies); };
   grid.appendChild(add);
   movies.forEach((m, i) => {
     const card = document.createElement('div');
@@ -822,7 +828,7 @@ async function renderHome() {
       homeUrls.push(u);
       card.querySelector('.poster').style.backgroundImage = `url("${u}")`;
     }
-    card.onclick = () => { primeGestures(); openMovie(m.id); };
+    card.onclick = () => { primeGestures(); requestCamera().catch(() => {}); openMovie(m.id); };
     card.querySelector('.del').onclick = async (e) => {
       e.stopPropagation();
       if (!confirm(`Delete “${m.name}” and all its photos? This can’t be undone.`)) return;
@@ -838,7 +844,7 @@ async function renderHome() {
       if (est.usage > 1e6) foot = `${Math.round(est.usage / 1e6)} MB of photos saved on this device. ` + foot;
     }
   } catch (e) { /* estimate not available */ }
-  $('#homeFoot').textContent = foot;
+  $('#homeFoot').textContent = `${foot} Version ${VERSION}.`;
 }
 
 async function newMovie(existing) {
@@ -875,13 +881,13 @@ async function openMovie(id) {
   document.body.classList.remove('bumped', 'glow');
   renderTitle(); renderStrip(); refreshLast(); applyMode(); applyGhostBadge();
   if (!Settings.v.tipsSeen) $('#tipsMsg').hidden = false;
-  await startCamera();
+  startCamera();   // not awaited: if the picture never starts, the watch loop notices and explains
   Wake.on();
   startTick();
 }
 
 function leaveShoot() {
-  stopTick(); stopCamera(); Wake.off(); closePreview();
+  stopTick(); stopCamera(); hideCamHelp(); Wake.off(); closePreview();
   $('#settings').hidden = true; $('#bump').hidden = true; $('#tipsMsg').hidden = true;
   document.body.classList.remove('bumped', 'glow');
   S.realigning = false; S.glow = false; S.autoArmed = false; S.countdown = false;
@@ -949,39 +955,122 @@ function applyGhostBadge() {
 }
 
 // ---------- camera ----------
-let camStream = null;
+// The iPad is fussy: ask for the camera straight from a tap, never twice at once, and if the
+// picture doesn't start, say why and offer a button (sometimes a tap is needed to start it).
+let camStream = null, camPending = null, camError = null, camShownAt = 0, camHelpCode = null;
+const liveTrack = (s) => !!s && s.getVideoTracks().some((t) => t.readyState === 'live');
+
+function requestCamera() {
+  if (FAKE) return Promise.resolve(FakeCam.start());
+  if (liveTrack(camStream)) return Promise.resolve(camStream);
+  if (!camPending) {
+    camPending = (async () => {
+      if (!window.isSecureContext) throw Object.assign(new Error('Not a secure page'), { name: 'InsecureError' });
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw Object.assign(new Error('No camera API'), { name: 'NotFoundError' });
+      return navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      });
+    })().then((s) => { camStream = s; camError = null; watchTrack(s); return s; }, (e) => { camError = e; throw e; });
+    camPending.then(() => { camPending = null; }, () => { camPending = null; });
+  }
+  return camPending;
+}
+function watchTrack(s) {
+  const t = s.getVideoTracks()[0];
+  if (!t) return;
+  t.addEventListener('ended', () => {
+    if (camStream !== s) return;
+    camStream = null;
+    if (S.screen === 'shoot' && !document.hidden) showCamHelp('ended');
+  });
+  t.addEventListener('mute', () => { if (camStream === s && S.screen === 'shoot' && !document.hidden) showCamHelp('muted'); });
+  t.addEventListener('unmute', () => { if (camHelpCode === 'muted') hideCamHelp(); });
+}
 async function startCamera() {
   const v = $('#cam');
-  $('#camMsg').hidden = true;
+  hideCamHelp();
+  camShownAt = performance.now();
   try {
-    if (!camStream || !camStream.active) {
-      if (FAKE) camStream = FakeCam.start();
-      else {
-        if (!window.isSecureContext) throw Object.assign(new Error('insecure'), { name: 'InsecureError' });
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw Object.assign(new Error('no camera'), { name: 'NotFoundError' });
-        camStream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        });
-      }
-    }
-    if (v.srcObject !== camStream) v.srcObject = camStream;
-    await v.play().catch(() => {});
-    if (!v.videoWidth) await new Promise((r) => v.addEventListener('loadedmetadata', r, { once: true }));
+    const s = await requestCamera();
+    if (S.screen !== 'shoot' && S.screen !== 'play') return;
+    v.muted = true; v.playsInline = true;
+    if (v.srcObject !== s) v.srcObject = s;
+    await playVideo();
   } catch (e) {
-    camStream = null;
-    const why = e.name === 'NotAllowedError'
-      ? 'The camera is switched off for this app. A grown-up can turn it on in the iPad’s Settings (Safari → Camera), then tap Try again.'
-      : e.name === 'NotFoundError' || e.name === 'OverconstrainedError' ? 'No camera was found on this device.'
-      : e.name === 'InsecureError' ? 'The camera only works when the app is opened from its https:// address.'
-      : 'The camera could not start. Tap Try again.';
-    $('#camMsgText').textContent = why;
-    $('#camMsg').hidden = false;
+    showCamHelp(e && e.name);
+  }
+}
+async function playVideo() {
+  try {
+    await $('#cam').play();
+    if (camHelpCode === 'play' || camHelpCode === 'noframes') hideCamHelp();
+  } catch (e) {
+    camError = e;
+    if (S.screen === 'shoot') showCamHelp('play');
   }
 }
 function stopCamera() {
-  if (camStream && !FAKE) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
+  if (camStream && !FAKE) { const s = camStream; camStream = null; s.getTracks().forEach((t) => t.stop()); }
   $('#cam').srcObject = null;
+}
+// From the watch loop: still no picture a few seconds after opening → explain.
+function checkCamera() {
+  const v = $('#cam');
+  if (v.videoWidth > 0 && v.readyState >= 2 && !v.paused) {
+    if (camHelpCode === 'play' || camHelpCode === 'noframes') hideCamHelp();
+    return;
+  }
+  if (camPending || camHelpCode || performance.now() - camShownAt < 4000) return;
+  showCamHelp(v.paused && camStream ? 'play' : 'noframes');
+}
+const CAM_HELP = {
+  NotAllowedError: ['The camera is blocked', 'A grown-up can allow it in the iPad’s Settings app (Safari → Camera → Allow), then tap Try again.', 'Try again'],
+  NotFoundError: ['No camera found', 'This device doesn’t seem to have a camera the app can use.', 'Try again'],
+  NotReadableError: ['The camera is busy', 'Another app may be using the camera. Close it, then tap Try again.', 'Try again'],
+  InsecureError: ['Wrong address', 'Open the app from https://profasaf.github.io/stopmotion/ so the camera is allowed.', 'Try again'],
+  play: ['Tap to start the camera', 'This browser needs a tap before it will show the camera.', 'Start camera'],
+  muted: ['The camera is paused', 'The iPad pauses the camera when another app is open next to this one (Split View or Stage Manager). Make this app full screen.', 'Try again'],
+  ended: ['The camera stopped', 'Tap to turn it back on.', 'Turn camera on'],
+  noframes: ['No picture from the camera', 'Tap to start it again.', 'Start camera'],
+};
+function showCamHelp(code) {
+  if (!CAM_HELP[code]) code = code === 'OverconstrainedError' ? 'NotFoundError' : code === 'AbortError' ? 'NotReadableError' : 'noframes';
+  camHelpCode = code;
+  const [title, text, button] = CAM_HELP[code];
+  $('#camMsgTitle').textContent = title;
+  $('#camMsgText').textContent = text;
+  $('#camRetry').textContent = button;
+  $('#camMsgDetail').textContent = camDiagnostics();
+  $('#camMsg').hidden = false;
+}
+function hideCamHelp() { camHelpCode = null; $('#camMsg').hidden = true; }
+// One line a grown-up can read back if the camera won't show.
+function camDiagnostics() {
+  const v = $('#cam'), t = camStream && camStream.getVideoTracks()[0], ua = navigator.userAgent;
+  const os = ua.match(/OS (\d+(?:_\d+)*) like Mac/);
+  const browser = /CriOS/.test(ua) ? 'Chrome' : /FxiOS/.test(ua) ? 'Firefox' : /EdgiOS|Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'browser';
+  return [
+    camHelpCode,
+    t ? `track ${t.readyState}${t.muted ? ' muted' : ''}` : 'no track',
+    `video ${v.videoWidth}x${v.videoHeight} ${v.paused ? 'paused' : 'playing'} rs${v.readyState}`,
+    camError ? `${camError.name || ''} ${(camError.message || '').slice(0, 80)}`.trim() : '',
+    os ? `iOS ${os[1].replace(/_/g, '.')}` : '',
+    navigator.standalone ? `${browser}, home screen` : browser,
+    `v${VERSION}`,
+  ].filter(Boolean).join(' · ');
+}
+// The help button: if only playback was refused, start it from this tap; otherwise ask for the camera again.
+async function retryCamera() {
+  Sound.unlock();
+  if (liveTrack(camStream) && camHelpCode === 'play') {
+    hideCamHelp();
+    camShownAt = performance.now();
+    await playVideo();
+    return;
+  }
+  stopCamera();
+  startCamera();
 }
 // Where pixels are read from: the live <video>, or with ?fake the test canvas itself
 // (a hidden test window delivers video frames late).
@@ -994,6 +1083,7 @@ function stopTick() { clearInterval(S.tickTimer); S.tickTimer = 0; }
 
 function tick() {
   if (S.screen !== 'shoot' || !S.movie) return;
+  if (!FAKE) checkCamera();
   const src = frameSource(), [vw, vh] = sourceSize(src);
   if (!vw || (src instanceof HTMLVideoElement && src.readyState < 2)) return;
   const m = S.movie, W = m.w || vw, H = m.h || vh;
@@ -1385,7 +1475,7 @@ function closePlayer() {
   Player.close();
   $('#exportBox').hidden = true;
   show('shoot');
-  $('#cam').play().catch(() => {});
+  playVideo();
   startTick();
 }
 
@@ -1557,8 +1647,8 @@ function wire() {
   $('#playBtn').onclick = openPlayer;
   $('#glowBtn').onclick = toggleGlow;
   $('#keepBtn').onclick = keepSpot;
-  $('#camRetry').onclick = () => { primeGestures(); startCamera(); };
-  $('#tipsOk').onclick = () => { Settings.v.tipsSeen = true; Settings.save(); $('#tipsMsg').hidden = true; };
+  $('#camRetry').onclick = retryCamera;
+  $('#tipsOk').onclick = () => { primeGestures(); Settings.v.tipsSeen = true; Settings.save(); $('#tipsMsg').hidden = true; };
   $('#tipsBtn').onclick = () => { $('#settings').hidden = true; $('#tipsMsg').hidden = false; };
   $('#pvPrev').onclick = () => openPreview(previewIndex - 1);
   $('#pvNext').onclick = () => openPreview(previewIndex + 1);
