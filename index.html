@@ -1,0 +1,1605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Stop Motion">
+<meta name="theme-color" content="#16112a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<title>Stop Motion</title>
+<style>
+:root{
+  --bg:#16112a; --panel:#211a3c; --panel2:#2e2553; --panel3:#3b3068; --line:rgba(255,255,255,.1);
+  --ink:#fff7e8; --muted:#b9b0d8; --yellow:#ffd23f; --orange:#ff9f43; --coral:#ff6b6b; --teal:#2ee6b6; --sky:#5cc8ff;
+  --font:ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--font);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer;touch-action:manipulation}
+button:focus-visible{outline:3px solid var(--sky);outline-offset:2px}
+img{-webkit-user-drag:none}
+svg.i{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;display:block;flex:none}
+[hidden]{display:none!important}
+.screen{position:fixed;inset:0;display:none}
+body[data-screen=home] #home{display:block}
+body[data-screen=shoot] #shoot{display:grid}
+body[data-screen=play] #play{display:grid}
+
+/* ---------- shared bits ---------- */
+.pill{display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:999px;background:var(--panel3);font-weight:800;font-size:16px;white-space:nowrap}
+.pill svg.i{width:20px;height:20px}
+.pill.primary{background:var(--yellow);color:#3a2200}
+.pill.danger{background:var(--coral);color:#fff}
+.pill.on{background:var(--sky);color:#03263b}
+.round{width:52px;height:52px;border-radius:50%;background:var(--panel2);display:grid;place-items:center;flex:none}
+.round.primary{background:var(--yellow);color:#3a2200}
+.round.on{background:var(--sky);color:#03263b}
+.chip{background:var(--panel2);color:var(--muted);font-size:14px;font-weight:700;padding:6px 11px;border-radius:999px;white-space:nowrap}
+.hint{color:var(--muted);font-size:13px;line-height:1.4;margin:0}
+.seg{display:flex;background:var(--bg);border-radius:12px;padding:3px;gap:2px;flex:none}
+.seg button{padding:7px 11px;border-radius:9px;font-weight:800;font-size:14px;color:var(--muted)}
+.seg button.on{background:var(--yellow);color:#3a2200}
+
+/* ---------- home ---------- */
+#home{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:calc(env(safe-area-inset-top) + 28px) calc(env(safe-area-inset-right) + 28px) calc(env(safe-area-inset-bottom) + 28px) calc(env(safe-area-inset-left) + 28px);background:radial-gradient(120% 70% at 50% -10%,#3a2a7a 0%,var(--bg) 60%)}
+.home-head{display:flex;align-items:center;gap:16px;margin-bottom:26px}
+.logo{width:68px;height:68px;border-radius:18px;flex:none;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.home-head h1{margin:0;font-size:clamp(32px,5vw,52px);line-height:1;letter-spacing:-.02em}
+.home-head p{margin:6px 0 0;color:var(--muted);font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px}
+.card{position:relative;background:var(--panel);border-radius:20px;overflow:hidden;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.28);transition:transform .15s}
+.card:active{transform:scale(.97)}
+.poster{aspect-ratio:16/9;background:#0c0918 center/cover no-repeat;display:grid;place-items:center;color:var(--muted);font-size:15px}
+.meta{padding:12px 14px 14px}
+.name{font-weight:800;font-size:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:4px}
+.sub{color:var(--muted);font-size:14px;margin-top:3px}
+.del{position:absolute;top:8px;right:8px;width:42px;height:42px;border-radius:50%;background:rgba(10,6,20,.6);display:grid;place-items:center;color:#fff}
+.del svg.i{width:20px;height:20px}
+.card.new{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:190px;background:linear-gradient(135deg,var(--yellow),var(--orange));color:#3a2200;font-weight:800;font-size:22px}
+.card.new .plus{width:66px;height:66px;border-radius:50%;background:rgba(255,255,255,.45);display:grid;place-items:center}
+.card.new .plus svg.i{width:36px;height:36px;stroke-width:3}
+.home-foot{margin-top:28px;color:var(--muted);font-size:14px;line-height:1.5;max-width:720px}
+
+/* ---------- shoot ---------- */
+#shoot{grid-template-columns:minmax(0,1fr) 140px;grid-template-rows:60px minmax(0,1fr) 96px;grid-template-areas:"top side" "stage side" "strip side";padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.topbar{grid-area:top;display:flex;align-items:center;gap:10px;padding:0 10px 0 12px;min-width:0}
+.icon-btn{width:46px;height:46px;border-radius:14px;background:var(--panel2);display:grid;place-items:center;position:relative;flex:none}
+.icon-btn b{position:absolute;right:-5px;bottom:-5px;min-width:22px;height:22px;padding:0 5px;border-radius:11px;background:var(--sky);color:#03263b;font-size:12px;line-height:22px;text-align:center}
+.icon-btn b.off{background:var(--panel3);color:var(--muted)}
+.title-btn{font-weight:800;font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:45%;padding:6px 8px;border-radius:10px}
+.spacer{flex:1}
+#stage{grid-area:stage;position:relative;background:#000;border-radius:16px;overflow:hidden;margin:0 6px 0 12px}
+#stage video,#stage .ghost,#glowCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.ghost{opacity:.45;pointer-events:none}
+#ghost2{opacity:.22}
+body.bumped #ghost1{opacity:.55}
+body.glow .ghost{visibility:hidden}
+#glowCanvas{filter:brightness(2.4) saturate(1.6)}
+.stage-chip{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:rgba(15,10,30,.8);padding:8px 16px;border-radius:999px;font-weight:800;font-size:16px;white-space:nowrap;pointer-events:none}
+#countdown{position:absolute;inset:0;display:grid;place-items:center;font-size:min(30vh,200px);font-weight:900;color:#fff;text-shadow:0 6px 30px rgba(0,0,0,.6);pointer-events:none}
+#countdown.pop{animation:countpop .8s ease-out}
+@keyframes countpop{from{transform:scale(1.6);opacity:0}30%{opacity:1}to{transform:scale(1);opacity:.9}}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+#flash.go{animation:flash .35s ease-out}
+@keyframes flash{from{opacity:.85}to{opacity:0}}
+.stage-msg{position:absolute;inset:0;display:grid;place-items:center;background:rgba(10,6,22,.86);padding:24px;text-align:center;overflow-y:auto}
+.stage-msg .box{max-width:540px}
+.stage-msg h2{margin:0 0 10px;font-size:26px}
+.stage-msg p{margin:0 0 16px;color:var(--muted);font-size:17px;line-height:1.45}
+.tips{text-align:left;margin:0 0 18px;padding-left:24px;font-size:17px;line-height:1.45}
+.tips li{margin-bottom:8px}
+.strip{grid-area:strip;display:flex;align-items:center;gap:8px;overflow-x:auto;overflow-y:hidden;padding:0 12px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.strip::-webkit-scrollbar{display:none}
+.strip:empty::before{content:"Your photos will show up here";color:var(--muted);font-size:15px}
+.thumb{flex:none;height:70px;border-radius:9px;overflow:hidden;position:relative;background:#000}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb span{position:absolute;left:4px;bottom:4px;font-size:12px;font-weight:800;background:rgba(0,0,0,.62);padding:1px 6px;border-radius:7px}
+.thumb.sel{box-shadow:inset 0 0 0 3px var(--yellow)}
+.side{grid-area:side;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:10px;padding:12px 10px;background:var(--panel);border-left:1px solid var(--line)}
+.modes{display:flex;flex-direction:column;gap:6px;width:100%}
+.mode{display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 4px;border-radius:12px;background:var(--panel2);font-size:14px;font-weight:800;color:var(--muted)}
+.mode svg.i{width:18px;height:18px}
+.mode.on{background:var(--sky);color:#03263b}
+.shutter{position:relative;width:100px;height:100px;border-radius:50%;background:var(--yellow);color:#3a2200;display:grid;place-items:center;flex:none;box-shadow:0 0 0 6px rgba(255,210,63,.22),0 10px 26px rgba(0,0,0,.45);transition:transform .1s}
+.shutter:active{transform:scale(.93)}
+.shutter svg.i{width:42px;height:42px;stroke-width:2.4}
+.shutter .ring{position:absolute;left:-10px;top:-10px;width:120px;height:120px;transform:rotate(-90deg);pointer-events:none}
+.shutter .ring circle{fill:none;stroke:var(--teal);stroke-width:6;stroke-linecap:round;stroke-dasharray:289;stroke-dashoffset:289;transition:stroke-dashoffset .12s linear}
+.shutter.armed{background:var(--teal);color:#003526;animation:pulse 1.6s ease-in-out infinite}
+.shutter.armed .ring circle{stroke:var(--yellow)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 6px rgba(46,230,182,.25),0 10px 26px rgba(0,0,0,.45)}50%{box-shadow:0 0 0 14px rgba(46,230,182,.12),0 10px 26px rgba(0,0,0,.45)}}
+body.bumped .shutter{opacity:.35;pointer-events:none}
+.tools{display:flex;gap:10px}
+.tool{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;font-weight:800;color:var(--muted)}
+.tool .ico{width:52px;height:52px;border-radius:16px;background:var(--panel2);display:grid;place-items:center;color:var(--ink)}
+.tool .ico.play{background:var(--coral);color:#fff}
+
+/* bump alarm: ghost + target the kid steers the dot into */
+#bump{position:absolute;inset:0;pointer-events:none}
+.bump-banner{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:rgba(255,107,107,.96);color:#fff;padding:10px 20px;border-radius:18px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.35);transition:background .25s;max-width:92%}
+#bump.ok .bump-banner{background:rgba(46,230,182,.96);color:#003526}
+.bump-title{font-weight:900;font-size:20px}
+.bump-sub{font-size:15px;font-weight:700;opacity:.92;margin-top:2px}
+#target{position:absolute;left:50%;top:50%;width:0;height:0}
+#ring{position:absolute;left:-26px;top:-26px;width:52px;height:52px;border-radius:50%;border:4px solid #fff;box-shadow:0 0 0 3px rgba(0,0,0,.35),inset 0 0 0 3px rgba(0,0,0,.25)}
+#dot{position:absolute;left:-14px;top:-14px;width:28px;height:28px;border-radius:50%;background:var(--coral);box-shadow:0 0 0 3px #fff,0 2px 10px rgba(0,0,0,.5);transition:transform .12s linear,background .2s}
+#dot.near{background:var(--yellow)}
+#dot.ok{background:var(--teal)}
+#arrow{position:absolute;left:-20px;top:-20px;width:40px;height:40px;transition:transform .12s linear}
+#arrow svg{width:40px;height:40px;fill:none;stroke:#fff;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7))}
+#level{position:absolute;left:-110px;top:-2px;width:220px;height:0;border-top:4px dashed rgba(255,255,255,.9);transition:transform .12s linear}
+#level.ok{border-top-color:var(--teal)}
+.bump-actions{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:10px;pointer-events:auto}
+.bump-actions .pill{background:rgba(20,14,40,.9)}
+.bump-actions .pill.on{background:var(--sky);color:#03263b}
+
+/* photo preview */
+#preview{position:absolute;inset:0;background:rgba(6,4,14,.95);display:grid;grid-template-rows:minmax(0,1fr) auto}
+#previewImg{width:100%;height:100%;object-fit:contain;padding:12px;min-height:0}
+.preview-bar{display:flex;align-items:center;justify-content:center;gap:10px;padding:0 10px 12px;flex-wrap:wrap}
+
+.popover{position:absolute;top:calc(env(safe-area-inset-top) + 62px);right:calc(env(safe-area-inset-right) + 150px);width:min(380px,calc(100vw - 24px));background:var(--panel2);border-radius:18px;padding:16px 16px 18px;box-shadow:0 18px 50px rgba(0,0,0,.5);z-index:20}
+.popover h3{margin:0 0 6px;font-size:20px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 6px;font-weight:700}
+.popover .pill{margin-top:14px}
+
+@media (orientation:portrait){
+  #shoot{grid-template-columns:minmax(0,1fr);grid-template-rows:60px minmax(0,1fr) 92px 150px;grid-template-areas:"top" "stage" "strip" "side"}
+  #stage{margin:0 12px}
+  .side{flex-direction:row;border-left:0;border-top:1px solid var(--line);padding:12px 18px}
+  .modes{width:auto;min-width:120px}
+  .popover{right:12px}
+}
+
+/* ---------- play ---------- */
+#play{grid-template-rows:minmax(0,1fr) auto;background:#07050d}
+.theater{position:relative;overflow:hidden;margin:calc(env(safe-area-inset-top) + 12px) calc(env(safe-area-inset-right) + 12px) 0 calc(env(safe-area-inset-left) + 12px);border-radius:16px;background:#000}
+#playCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.curtain{position:absolute;top:0;bottom:0;width:51%;z-index:2;pointer-events:none;background:repeating-linear-gradient(90deg,#7d0c20 0 26px,#b3172f 26px 52px);box-shadow:inset 0 -60px 80px rgba(0,0,0,.45);transition:transform 1.1s cubic-bezier(.6,.05,.3,1)}
+.curtain.left{left:0}
+.curtain.right{right:0}
+#play.open .curtain.left{transform:translateX(-102%)}
+#play.open .curtain.right{transform:translateX(102%)}
+.playbar{display:flex;align-items:center;gap:10px;padding:12px calc(env(safe-area-inset-right) + 12px) calc(env(safe-area-inset-bottom) + 12px) calc(env(safe-area-inset-left) + 12px);flex-wrap:wrap}
+.playbar input[type=range]{flex:1;min-width:140px;accent-color:var(--yellow);height:30px}
+.modal{position:fixed;inset:0;display:grid;place-items:center;background:rgba(6,4,14,.75);z-index:30;padding:20px}
+.modal-card{background:var(--panel2);border-radius:22px;padding:22px;width:min(440px,100%);text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal-card h3{margin:0;font-size:22px}
+.bar{height:14px;border-radius:7px;background:var(--bg);overflow:hidden;margin:16px 0 12px}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--yellow),var(--orange));transition:width .15s}
+.actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px}
+
+#toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 14px);transform:translate(-50%,-20px);opacity:0;background:rgba(20,14,40,.96);padding:10px 18px;border-radius:999px;font-weight:800;z-index:50;transition:transform .25s,opacity .25s;pointer-events:none;box-shadow:0 10px 30px rgba(0,0,0,.4);max-width:90vw;text-align:center}
+#toast.show{transform:translate(-50%,0);opacity:1}
+.fake-panel{position:fixed;left:10px;bottom:10px;z-index:60;background:rgba(0,0,0,.8);padding:8px;border-radius:12px;display:flex;gap:6px;align-items:center;font-size:12px;flex-wrap:wrap;max-width:440px}
+.fake-panel button{background:#454060;color:#fff;padding:6px 9px;border-radius:8px;font-size:12px;font-weight:700}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body data-screen="home">
+
+<!-- ================= HOME ================= -->
+<section id="home" class="screen">
+  <header class="home-head">
+    <img class="logo" src="icons/icon-192.png" alt="">
+    <div>
+      <h1>Stop Motion</h1>
+      <p>Make movies one photo at a time.</p>
+    </div>
+  </header>
+  <div id="movieGrid" class="grid"></div>
+  <footer id="homeFoot" class="home-foot"></footer>
+</section>
+
+<!-- ================= SHOOT ================= -->
+<section id="shoot" class="screen">
+  <div class="topbar">
+    <button class="icon-btn" id="homeBtn" aria-label="All movies"><i data-icon="home"></i></button>
+    <button class="title-btn" id="movieTitle" aria-label="Rename movie"></button>
+    <span class="chip" id="frameCount"></span>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="ghostBtn" aria-label="Ghost photos"><i data-icon="ghost"></i><b id="ghostBadge">1</b></button>
+    <button class="icon-btn" id="settingsBtn" aria-label="Settings"><i data-icon="gear"></i></button>
+  </div>
+
+  <div id="stage">
+    <video id="cam" playsinline muted autoplay></video>
+    <img id="ghost2" class="ghost" alt="" hidden>
+    <img id="ghost1" class="ghost" alt="" hidden>
+    <canvas id="glowCanvas" hidden></canvas>
+    <div id="chip" class="stage-chip" hidden></div>
+    <div id="countdown" hidden></div>
+    <div id="flash"></div>
+
+    <div id="bump" hidden>
+      <div class="bump-banner">
+        <div class="bump-title">Oops! The camera moved</div>
+        <div class="bump-sub" id="bumpSub">Move the iPad the way the arrow points</div>
+      </div>
+      <div id="target">
+        <div id="level" hidden></div>
+        <div id="ring"></div>
+        <div id="arrow" hidden><svg viewBox="0 0 40 40"><path d="M6 20h24M21 10l10 10-10 10"/></svg></div>
+        <div id="dot"></div>
+      </div>
+      <div class="bump-actions">
+        <button class="pill" id="glowBtn"><i data-icon="sparkle"></i>Glow</button>
+        <button class="pill" id="keepBtn"><i data-icon="pin"></i>Keep this spot</button>
+      </div>
+    </div>
+
+    <div id="rotateMsg" class="stage-msg" hidden><div class="box">
+      <h2>Turn the iPad back</h2>
+      <p>This movie was started the other way around. Turn the iPad until the picture fits again.</p>
+    </div></div>
+
+    <div id="camMsg" class="stage-msg" hidden><div class="box">
+      <h2>No camera yet</h2>
+      <p id="camMsgText"></p>
+      <button class="pill primary" id="camRetry">Try again</button>
+    </div></div>
+
+    <div id="tipsMsg" class="stage-msg" hidden><div class="box">
+      <h2>Before you start</h2>
+      <ol class="tips">
+        <li><b>Keep the iPad still.</b> Use a stand, or lean it on books. Tape marks around its feet help you put it back after a bump.</li>
+        <li><b>Use a lamp</b> and close the curtains, so the light stays the same.</li>
+        <li><b>Stick toys down</b> with poster putty so they don't tip over.</li>
+        <li><b>Move things a tiny bit</b> between photos. The see-through ghost shows your last photo.</li>
+      </ol>
+      <button class="pill primary" id="tipsOk">Got it!</button>
+    </div></div>
+
+    <div id="preview" hidden>
+      <img id="previewImg" alt="">
+      <div class="preview-bar">
+        <button class="round" id="pvPrev" aria-label="Previous photo"><i data-icon="left"></i></button>
+        <span class="chip" id="pvLabel"></span>
+        <button class="round" id="pvNext" aria-label="Next photo"><i data-icon="right"></i></button>
+        <button class="pill" id="pvCopy"><i data-icon="copy"></i>Copy</button>
+        <button class="pill danger" id="pvDelete"><i data-icon="trash"></i>Delete</button>
+        <button class="pill primary" id="pvClose"><i data-icon="check"></i>Done</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="strip" class="strip"></div>
+
+  <div class="side">
+    <div class="modes">
+      <button class="mode" data-mode="tap"><i data-icon="camera"></i>Tap</button>
+      <button class="mode" data-mode="timer"><i data-icon="timer"></i>Timer</button>
+      <button class="mode" data-mode="auto"><i data-icon="hand"></i>Hands-free</button>
+    </div>
+    <button class="shutter" id="shutter" aria-label="Take photo">
+      <svg class="ring" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46"/></svg>
+      <span id="shutterIcon"></span>
+    </button>
+    <div class="tools">
+      <button class="tool" id="undoBtn"><span class="ico"><i data-icon="undo"></i></span>Undo</button>
+      <button class="tool" id="playBtn"><span class="ico play"><i data-icon="play"></i></span>Play</button>
+    </div>
+  </div>
+
+  <div id="settings" class="popover" hidden>
+    <h3>Settings</h3>
+    <div class="row"><span>Speed</span><div class="seg" id="fpsSeg"></div></div>
+    <p class="hint">Photos per second. More photos per second looks smoother but takes more photos.</p>
+    <div class="row"><span>Ghost photos</span><div class="seg" id="onionSeg"></div></div>
+    <div class="row"><span>Bump alarm</span><div class="seg" id="bumpSeg"></div></div>
+    <div class="row"><span>Sounds</span><div class="seg" id="soundSeg"></div></div>
+    <button class="pill" id="tipsBtn">Setup tips</button>
+  </div>
+</section>
+
+<!-- ================= PLAY ================= -->
+<section id="play" class="screen">
+  <div class="theater">
+    <canvas id="playCanvas"></canvas>
+    <div class="curtain left"></div><div class="curtain right"></div>
+  </div>
+  <div class="playbar">
+    <button class="pill" id="playBack"><i data-icon="left"></i>Back</button>
+    <button class="round primary" id="playPause" aria-label="Play or pause"></button>
+    <input type="range" id="scrub" min="0" max="0" value="0" aria-label="Choose a photo">
+    <span class="chip" id="playLabel"></span>
+    <div class="seg" id="playFps" aria-label="Speed"></div>
+    <button class="round on" id="loopBtn" aria-label="Loop"><i data-icon="loop"></i></button>
+    <button class="pill primary" id="makeVideo"><i data-icon="film"></i>Make video</button>
+  </div>
+  <div id="exportBox" class="modal" hidden>
+    <div class="modal-card">
+      <h3 id="exportTitle">Making your movie…</h3>
+      <div class="bar"><i id="exportBar"></i></div>
+      <p class="hint" id="exportMsg">Keep this screen open.</p>
+      <div class="actions">
+        <button class="pill primary" id="saveVideo" hidden><i data-icon="share"></i><span id="saveLabel">Save to Photos</span></button>
+        <button class="pill" id="exportClose">Close</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="toast" hidden></div>
+
+<script>
+'use strict';
+/* Stop Motion: a stop-motion movie maker for iPad Safari.
+   Everything stays on the device. Photos live in IndexedDB, the camera is watched
+   through tiny 160px copies (stillness, hands-free snapping, bump alarm), and
+   videos are encoded with WebCodecs into an MP4. Add ?fake to the URL to test
+   with a simulated camera that has buttons to move the toy and bump the camera. */
+
+// ---------- small helpers ----------
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const FAKE = new URLSearchParams(location.search).has('fake');
+const MUXER_URL = 'https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.min.js';
+const MAX_SIDE = 1920;   // longest side of a saved photo
+const SMALL_W = 160;     // width of the tiny copies used to watch the camera
+const FPS_CHOICES = [5, 8, 10, 12, 15];
+const TICK_MS = 120;     // how often the camera is checked
+
+const ICONS = {
+  home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/>',
+  ghost: '<path d="M5 20V11a7 7 0 0 1 14 0v9l-2.4-1.8-2.3 1.8-2.3-1.8-2.3 1.8-2.3-1.8z"/><circle cx="9.5" cy="11" r="1" fill="currentColor"/><circle cx="14.5" cy="11" r="1" fill="currentColor"/>',
+  gear: '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8"/>',
+  play: '<path d="M7.5 4.8v14.4L19 12z" fill="currentColor"/>',
+  pause: '<rect x="6.5" y="5" width="3.8" height="14" rx="1" fill="currentColor"/><rect x="13.7" y="5" width="3.8" height="14" rx="1" fill="currentColor"/>',
+  undo: '<path d="M9 5 4 10l5 5"/><path d="M4 10h10a6 6 0 0 1 0 12h-3"/>',
+  camera: '<path d="M3 8.5a2 2 0 0 1 2-2h2.5L9 4.5h6l1.5 2H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.8"/>',
+  timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M9.5 2.5h5M12 2.5V6"/>',
+  hand: '<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 10.5V4a1.5 1.5 0 0 1 3 0v7"/><path d="M14 10.5V5.5a1.5 1.5 0 0 1 3 0V14"/><path d="M8 12.5 6.6 11a1.6 1.6 0 0 0-2.4 2.1L8 19a5 5 0 0 0 4 2h1a4 4 0 0 0 4-4v-3"/>',
+  trash: '<path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>',
+  left: '<path d="M15 5l-7 7 7 7"/>',
+  right: '<path d="M9 5l7 7-7 7"/>',
+  loop: '<path d="M17 3.5 20 6.5l-3 3"/><path d="M4 11.5v-1a4 4 0 0 1 4-4h12"/><path d="M7 20.5 4 17.5l3-3"/><path d="M20 12.5v1a4 4 0 0 1-4 4H4"/>',
+  film: '<rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M7.5 4v16M16.5 4v16M3.5 9h4M3.5 15h4M16.5 9h4M16.5 15h4"/>',
+  share: '<path d="M12 3.5v11M8 7.5l4-4 4 4"/><path d="M7 10.5H5v10h14v-10h-2"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+  sparkle: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.2 6.2l2.6 2.6M15.2 15.2l2.6 2.6M6.2 17.8l2.6-2.6M15.2 8.8l2.6-2.6"/>',
+  pin: '<path d="M12 21s-6-5.5-6-10.5a6 6 0 0 1 12 0C18 15.5 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/>',
+};
+const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
+function hydrateIcons(root = document) { $$('[data-icon]', root).forEach((el) => { el.outerHTML = icon(el.dataset.icon); }); }
+
+function toBlob(canvas, type, quality) {
+  return new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('Could not save the picture'))), type, quality));
+}
+
+const loadedScripts = {};
+function loadScript(src) {
+  if (!loadedScripts[src]) {
+    loadedScripts[src] = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src; s.crossOrigin = 'anonymous';
+      s.onload = res;
+      s.onerror = () => { delete loadedScripts[src]; rej(new Error('Could not load the video maker. Is the iPad online?')); };
+      document.head.appendChild(s);
+    });
+  }
+  return loadedScripts[src];
+}
+
+async function decodeImage(blob) {
+  if (window.createImageBitmap) { try { return await createImageBitmap(blob); } catch (e) { /* fall back to <img> */ } }
+  const url = URL.createObjectURL(blob);
+  try { const img = new Image(); img.src = url; await img.decode(); return img; } finally { URL.revokeObjectURL(url); }
+}
+
+let toastTimer = 0;
+function toast(msg, ms = 1900) {
+  const t = $('#toast');
+  t.textContent = msg; t.hidden = false; t.classList.remove('show'); void t.offsetWidth; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.classList.remove('show'); setTimeout(() => { t.hidden = true; }, 260); }, ms);
+}
+
+// ---------- settings (per device) ----------
+const Settings = {
+  v: { onion: 1, mode: 'tap', bumpWatch: true, sound: true, tipsSeen: false },
+  load() { try { Object.assign(this.v, JSON.parse(localStorage.getItem('stopmotion.settings') || '{}')); } catch (e) { /* private mode */ } },
+  save() { try { localStorage.setItem('stopmotion.settings', JSON.stringify(this.v)); } catch (e) { /* private mode */ } },
+};
+
+// ---------- storage: movies + photos in IndexedDB ----------
+const DB = {
+  db: null,
+  open() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('stopmotion', 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        db.createObjectStore('movies', { keyPath: 'id' });
+        db.createObjectStore('frames', { keyPath: 'id' });
+      };
+      req.onsuccess = () => { this.db = req.result; resolve(); };
+      req.onerror = () => reject(req.error);
+    });
+  },
+  // Runs work(tx) in one transaction; resolves once it commits.
+  run(stores, mode, work) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(stores, mode);
+      let out;
+      try { out = work(tx); } catch (e) { reject(e); return; }
+      tx.oncomplete = () => resolve(typeof out === 'function' ? out() : out);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('The iPad may be out of space'));
+    });
+  },
+  get(store, key) { return this.run(store, 'readonly', (tx) => { const r = tx.objectStore(store).get(key); return () => r.result; }); },
+  all(store) { return this.run(store, 'readonly', (tx) => { const r = tx.objectStore(store).getAll(); return () => r.result; }); },
+  getMany(store, keys) {
+    return this.run(store, 'readonly', (tx) => { const s = tx.objectStore(store); const reqs = keys.map((k) => s.get(k)); return () => reqs.map((r) => r.result); });
+  },
+  put(store, value) { return this.run(store, 'readwrite', (tx) => { tx.objectStore(store).put(value); }); },
+  saveFrame(frame, movie) {
+    return this.run(['frames', 'movies'], 'readwrite', (tx) => { tx.objectStore('frames').put(frame); tx.objectStore('movies').put(movie); });
+  },
+  deleteFrames(ids, movie) {
+    return this.run(['frames', 'movies'], 'readwrite', (tx) => {
+      const f = tx.objectStore('frames'); ids.forEach((id) => f.delete(id));
+      tx.objectStore('movies').put(movie);
+    });
+  },
+  deleteMovie(movie) {
+    return this.run(['frames', 'movies'], 'readwrite', (tx) => {
+      const f = tx.objectStore('frames'); movie.frames.forEach((id) => f.delete(id));
+      tx.objectStore('movies').delete(movie.id);
+    });
+  },
+};
+
+// ---------- sound effects (synthesized, no files) ----------
+const Sound = {
+  ctx: null,
+  unlock() {
+    try {
+      if (!this.ctx) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) this.ctx = new AC(); }
+      if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    } catch (e) { /* no audio */ }
+  },
+  tone(freq, dur, { type = 'sine', vol = 0.18, at = 0, to = 0 } = {}) {
+    if (!Settings.v.sound || !this.ctx) return;
+    const c = this.ctx, t = c.currentTime + at, o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + dur + 0.03);
+  },
+  noise(dur, vol) {
+    if (!Settings.v.sound || !this.ctx) return;
+    const c = this.ctx, n = Math.floor(c.sampleRate * dur), buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3);
+    const s = c.createBufferSource(), g = c.createGain();
+    g.gain.value = vol; s.buffer = buf; s.connect(g); g.connect(c.destination); s.start();
+  },
+  shutter() { this.noise(0.09, 0.5); this.tone(2400, 0.04, { type: 'square', vol: 0.04 }); },
+  beep() { this.tone(880, 0.12); },
+  chime() { this.tone(784, 0.16); this.tone(1175, 0.3, { at: 0.12 }); },
+  uhoh() { this.tone(520, 0.2, { type: 'triangle', vol: 0.25 }); this.tone(390, 0.32, { type: 'triangle', vol: 0.25, at: 0.22 }); },
+  pop() { this.tone(500, 0.1, { to: 250 }); },
+};
+
+// ---------- motion sensors: wobble + tilt since the last photo ----------
+const Motion = {
+  g: null,          // smoothed gravity vector in device coordinates
+  available: false, // true once real sensor data arrives
+  lastMove: 0,
+  listening: false,
+  // On iPad this must be called straight from a tap (Safari asks permission once).
+  request() {
+    try {
+      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission().then((r) => { if (r === 'granted') this.listen(); }).catch(() => {});
+        return;
+      }
+    } catch (e) { /* not supported */ }
+    this.listen();
+  },
+  listen() {
+    if (this.listening) return;
+    this.listening = true;
+    window.addEventListener('devicemotion', (e) => this.onMotion(e));
+  },
+  onMotion(e) {
+    const ag = e.accelerationIncludingGravity;
+    if (!ag || ag.x == null) return;
+    const rr = e.rotationRate, a = e.acceleration;
+    const rot = rr && rr.alpha != null ? Math.hypot(rr.alpha, rr.beta, rr.gamma) : 0; // deg/s
+    const lin = a && a.x != null ? Math.hypot(a.x, a.y, a.z) : 0;                     // m/s²
+    if (rot > 3 || lin > 0.2) this.lastMove = performance.now();
+    const v = [ag.x, ag.y, ag.z];
+    if (!this.g) this.g = v;
+    else for (let i = 0; i < 3; i++) this.g[i] += (v[i] - this.g[i]) * 0.08;
+    this.available = true;
+  },
+  still(ms = 350) { return !this.available || performance.now() - this.lastMove > ms; },
+  snapshot() { return this.available && this.g ? this.g.slice() : null; },
+  // Total tilt (degrees) between now and a saved gravity vector.
+  angleTo(ref) {
+    if (!ref || !this.g) return null;
+    const a = this.g, na = Math.hypot(a[0], a[1], a[2]), nb = Math.hypot(ref[0], ref[1], ref[2]);
+    if (!na || !nb) return null;
+    const cos = (a[0] * ref[0] + a[1] * ref[1] + a[2] * ref[2]) / (na * nb);
+    return (Math.acos(clamp(cos, -1, 1)) * 180) / Math.PI;
+  },
+  // Twist in the screen plane (degrees, signed) since a saved gravity vector.
+  rollTo(ref) {
+    if (!ref || !this.g || Math.hypot(this.g[0], this.g[1]) < 3 || Math.hypot(ref[0], ref[1]) < 3) return null;
+    let d = ((Math.atan2(this.g[1], this.g[0]) - Math.atan2(ref[1], ref[0])) * 180) / Math.PI;
+    if (d > 180) d -= 360;
+    if (d < -180) d += 360;
+    return d;
+  },
+};
+
+// ---------- vision: tiny grayscale copies of the camera ----------
+const Vision = {
+  mid: null, mctx: null,
+  // Returns a sw×sh grayscale copy (Uint8Array), box-filtered from a 4× larger draw.
+  grab(src, sw, sh) {
+    const mw = sw * 4, mh = sh * 4;
+    if (!this.mid) { this.mid = document.createElement('canvas'); this.mctx = this.mid.getContext('2d', { willReadFrequently: true }); }
+    if (this.mid.width !== mw || this.mid.height !== mh) { this.mid.width = mw; this.mid.height = mh; }
+    this.mctx.imageSmoothingQuality = 'high';
+    this.mctx.drawImage(src, 0, 0, mw, mh);
+    const d = this.mctx.getImageData(0, 0, mw, mh).data, out = new Uint8Array(sw * sh);
+    for (let y = 0; y < sh; y++) {
+      for (let x = 0; x < sw; x++) {
+        let s = 0;
+        for (let yy = 0; yy < 4; yy++) {
+          let p = ((y * 4 + yy) * mw + x * 4) * 4;
+          for (let xx = 0; xx < 4; xx++, p += 4) s += d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29;
+        }
+        out[y * sw + x] = s >> 12;
+      }
+    }
+    return out;
+  },
+};
+
+// Blur, brightness and an edge pyramid for one tiny copy.
+function analyze(gray, w, h) {
+  const n = w * h, tmp = new Float32Array(n), b = new Float32Array(n);
+  for (let y = 0; y < h; y++) {
+    const r = y * w;
+    for (let x = 0; x < w; x++) tmp[r + x] = (gray[r + (x > 0 ? x - 1 : x)] + gray[r + x] + gray[r + (x < w - 1 ? x + 1 : x)]) / 3;
+  }
+  let mean = 0;
+  for (let y = 0; y < h; y++) {
+    const u = (y > 0 ? y - 1 : y) * w, c = y * w, dn = (y < h - 1 ? y + 1 : y) * w;
+    for (let x = 0; x < w; x++) { const v = (tmp[u + x] + tmp[c + x] + tmp[dn + x]) / 3; b[c + x] = v; mean += v; }
+  }
+  mean /= n;
+  // Edge strength, scaled so the average edge is about 1 (ignores brightness changes).
+  const g = new Float32Array(n);
+  let sum = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x, m = Math.abs(b[i + 1] - b[i - 1]) + Math.abs(b[i + w] - b[i - w]);
+      g[i] = m; sum += m;
+    }
+  }
+  const k = 1 / (sum / ((w - 2) * (h - 2)) + 0.5);
+  for (let i = 0; i < n; i++) { const v = g[i] * k; g[i] = v > 4 ? 4 : v; }
+  const l0 = { d: g, w, h }, l1 = halve(l0), l2 = halve(l1);
+  return { w, h, blur: b, mean, pyr: [l0, l1, l2] };
+}
+function halve(L) {
+  const w = L.w >> 1, h = L.h >> 1, o = new Float32Array(w * h), d = L.d, W = L.w;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = 2 * y * W + 2 * x; o[y * w + x] = (d[i] + d[i + 1] + d[i + W] + d[i + W + 1]) * 0.25; }
+  return { d: o, w, h };
+}
+// Fraction of pixels that changed by more than thr (after evening out overall brightness).
+function changeFrac(A, B, thr) {
+  const a = A.blur, b = B.blur, n = a.length, off = B.mean - A.mean;
+  let c = 0;
+  for (let i = 0; i < n; i++) { const d = b[i] - a[i] - off; if (d > thr || d < -thr) c++; }
+  return c / n;
+}
+// How badly the edges disagree if cur is shifted by (dx, dy). Truncated so a moved toy or a hand can't dominate.
+function shiftCost(A, B, dx, dy) {
+  const w = A.w, h = A.h, a = A.d, b = B.d, T = 1.2;
+  const x0 = Math.max(1, 1 - dx), x1 = Math.min(w - 1, w - 1 - dx);
+  const y0 = Math.max(1, 1 - dy), y1 = Math.min(h - 1, h - 1 - dy);
+  if (x1 - x0 < w * 0.5 || y1 - y0 < h * 0.5) return Infinity;
+  let s = 0;
+  for (let y = y0; y < y1; y++) {
+    const ra = y * w, rb = (y + dy) * w + dx;
+    for (let x = x0; x < x1; x++) { let e = a[ra + x] - b[rb + x]; if (e < 0) e = -e; s += e < T ? e : T; }
+  }
+  return s / ((x1 - x0) * (y1 - y0));
+}
+// Finds how far the picture slid between the last photo (ref) and the live view (cur),
+// in pixels of the 160px copy. dx > 0 means the scene moved right on screen.
+function estimateShift(ref, cur) {
+  const R = 8, A2 = ref.pyr[2], B2 = cur.pyr[2];
+  let bx = 0, by = 0, best = Infinity, sum = 0, cnt = 0;
+  for (let dy = -R; dy <= R; dy++) {
+    for (let dx = -R; dx <= R; dx++) {
+      const c = shiftCost(A2, B2, dx, dy);
+      if (c === Infinity) continue;
+      sum += c; cnt++;
+      if (c < best) { best = c; bx = dx; by = dy; }
+    }
+  }
+  const peak = best / ((sum / cnt) || 1);          // low = one clear match; near 1 = can't tell
+  const edge = Math.abs(bx) === R || Math.abs(by) === R;
+  for (let L = 1; L >= 0; L--) {
+    const A = ref.pyr[L], B = cur.pyr[L], cx = bx * 2, cy = by * 2;
+    best = Infinity;
+    for (let dy = cy - 2; dy <= cy + 2; dy++) for (let dx = cx - 2; dx <= cx + 2; dx++) {
+      const c = shiftCost(A, B, dx, dy);
+      if (c < best) { best = c; bx = dx; by = dy; }
+    }
+  }
+  const A = ref.pyr[0], B = cur.pyr[0];
+  const sub = (m, p) => { const den = m - 2 * best + p; return den > 1e-6 && isFinite(den) ? clamp((0.5 * (m - p)) / den, -0.5, 0.5) : 0; };
+  const fx = bx + sub(shiftCost(A, B, bx - 1, by), shiftCost(A, B, bx + 1, by));
+  const fy = by + sub(shiftCost(A, B, bx, by - 1), shiftCost(A, B, bx, by + 1));
+  const c0 = shiftCost(A, B, 0, 0);
+  return { dx: fx, dy: fy, mag: Math.hypot(fx, fy), best, c0, ratio: best / Math.max(c0, 1e-6), peak, edge };
+}
+const looksMoved = (est) => est.peak < 0.75 && est.mag >= 1.5 && est.ratio < 0.8;
+
+// ---------- simulated camera for testing (?fake) ----------
+const FakeCam = {
+  stream: null,
+  start() {
+    if (this.stream) return this.stream;
+    const W = 1280, H = 720, c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    this.canvas = c;
+    this.ctx = c.getContext('2d');
+    this.world = this.makeWorld(1600, 1000);
+    this.grain = this.makeGrain(256);
+    this.toy = { x: 640, y: 560 };
+    this.cam = { x: 0, y: 0, r: 0 };
+    this.hand = null;
+    this.draw(W, H);
+    setInterval(() => this.draw(W, H), 33); // a timer, not rAF, so it keeps running in a hidden test window
+    this.stream = c.captureStream(30);
+    this.panel();
+    return this.stream;
+  },
+  rng(seed) { return () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }; },
+  makeWorld(W, H) {
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d'), r = this.rng(42), ty = H * 0.62;
+    x.fillStyle = '#bfe0f2'; x.fillRect(0, 0, W, ty);
+    for (let i = 0; i < W; i += 46) { x.fillStyle = (i / 46) % 2 ? '#b0d6ec' : '#c9e7f7'; x.fillRect(i, 0, 23, ty); }
+    x.fillStyle = '#fff'; x.fillRect(980, 90, 300, 230);
+    x.fillStyle = '#8fd0ff'; x.fillRect(995, 105, 130, 95); x.fillRect(1140, 105, 125, 95); x.fillRect(995, 212, 130, 95); x.fillRect(1140, 212, 125, 95);
+    x.fillStyle = '#7a4a2a'; x.fillRect(300, 120, 240, 170); x.fillStyle = '#ffe8a3'; x.fillRect(318, 138, 204, 134);
+    x.fillStyle = '#ff6b6b'; x.beginPath(); x.arc(380, 205, 36, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#2e9e6b'; x.fillRect(430, 190, 70, 70);
+    x.fillStyle = '#b8783f'; x.fillRect(0, ty, W, H - ty);
+    for (let i = 0; i < 70; i++) {
+      x.strokeStyle = `rgba(80,40,10,${0.15 + r() * 0.25})`; x.lineWidth = 1 + r() * 3;
+      const y0 = ty + r() * (H - ty);
+      x.beginPath(); x.moveTo(0, y0);
+      for (let xx = 0; xx <= W; xx += 80) x.lineTo(xx, y0 + Math.sin(xx / 140 + i) * 6 + (r() - 0.5) * 4);
+      x.stroke();
+    }
+    x.fillStyle = '#8a5528'; x.fillRect(0, ty - 8, W, 16);
+    x.fillStyle = '#e94f4f'; x.fillRect(260, 690, 120, 100); x.fillStyle = '#c23b3b'; x.fillRect(260, 690, 120, 18);
+    x.fillStyle = '#4f7be9'; x.fillRect(1180, 640, 220, 40); x.fillStyle = '#f2c14e'; x.fillRect(1195, 600, 190, 40);
+    x.fillStyle = '#5bbf7a'; x.fillRect(1170, 680, 240, 44);
+    x.fillStyle = '#d9824a'; x.fillRect(1460, 560, 80, 90); x.fillStyle = '#3d9a52'; x.beginPath(); x.arc(1500, 530, 60, 0, Math.PI * 2); x.fill();
+    for (let i = 0; i < 260; i++) {
+      x.fillStyle = `rgba(${(r() * 255) | 0},${(r() * 255) | 0},${(r() * 255) | 0},0.35)`;
+      x.beginPath(); x.arc(r() * W, ty + r() * (H - ty), 2 + r() * 6, 0, Math.PI * 2); x.fill();
+    }
+    return c;
+  },
+  makeGrain(n) {
+    const c = document.createElement('canvas'); c.width = c.height = n;
+    const x = c.getContext('2d'), img = x.createImageData(n, n);
+    for (let i = 0; i < img.data.length; i += 4) { const v = Math.random() * 255; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; }
+    x.putImageData(img, 0, 0);
+    return c;
+  },
+  draw(W, H) {
+    const x = this.ctx, now = performance.now(), t = this.toy;
+    if (this.hand) {
+      const k = (now - this.hand.t0) / this.hand.dur;
+      if (k >= 1) { t.x = this.hand.tx; this.hand = null; }
+      else t.x = this.hand.fx + (this.hand.tx - this.hand.fx) * clamp((k - 0.25) / 0.5, 0, 1);
+    }
+    x.save();
+    x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
+    x.translate(W / 2, H / 2); x.rotate(this.cam.r); x.translate(-W / 2 - this.cam.x, -H / 2 - this.cam.y);
+    x.drawImage(this.world, -160, -140);
+    x.fillStyle = 'rgba(0,0,0,.25)'; x.beginPath(); x.ellipse(t.x, t.y + 52, 50, 12, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#ffcc33'; x.beginPath(); x.arc(t.x, t.y, 50, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#222'; x.beginPath(); x.arc(t.x - 16, t.y - 10, 7, 0, Math.PI * 2); x.arc(t.x + 16, t.y - 10, 7, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = '#222'; x.lineWidth = 4; x.beginPath(); x.arc(t.x, t.y + 6, 18, 0.15 * Math.PI, 0.85 * Math.PI); x.stroke();
+    if (this.hand) {
+      const k = clamp((now - this.hand.t0) / this.hand.dur, 0, 1), reach = Math.sin(k * Math.PI);
+      const hx = t.x + 30 + Math.sin(now / 90) * 6, hy = t.y - 60 - (1 - reach) * 520;
+      x.fillStyle = '#f1c27d';
+      x.beginPath(); x.ellipse(hx + 60, hy - 130, 70, 170, -0.4, 0, Math.PI * 2); x.fill();
+      x.beginPath(); x.ellipse(hx, hy, 60, 48, 0, 0, Math.PI * 2); x.fill();
+    }
+    x.restore();
+    x.globalAlpha = 0.07; x.drawImage(this.grain, -Math.random() * 128, -Math.random() * 128, W + 256, H + 256); x.globalAlpha = 1;
+  },
+  moveToy(step = 34) {
+    if (this.hand) return;
+    this.hand = { t0: performance.now(), dur: 1500, fx: this.toy.x, tx: this.toy.x > 1250 ? 420 : this.toy.x + step };
+  },
+  bump() {
+    const s = () => (Math.random() < 0.5 ? -1 : 1);
+    this.cam.x += s() * (30 + Math.random() * 30); this.cam.y += s() * (14 + Math.random() * 20); this.cam.r += s() * (0.004 + Math.random() * 0.006);
+  },
+  panel() {
+    const p = document.createElement('div');
+    p.className = 'fake-panel';
+    p.innerHTML = '<b>Test camera</b><button data-a="toy">Move toy</button><button data-a="bump">Bump!</button>' +
+      '<button data-a="l">◀</button><button data-a="u">▲</button><button data-a="d">▼</button><button data-a="r">▶</button><button data-a="reset">Reset</button>';
+    p.addEventListener('click', (e) => {
+      const a = e.target.dataset.a, n = 6;
+      if (a === 'toy') this.moveToy();
+      if (a === 'bump') this.bump();
+      if (a === 'reset') this.cam = { x: 0, y: 0, r: 0 };
+      if (a === 'l') this.cam.x -= n;
+      if (a === 'r') this.cam.x += n;
+      if (a === 'u') this.cam.y -= n;
+      if (a === 'd') this.cam.y += n;
+    });
+    document.body.appendChild(p);
+  },
+};
+
+// ---------- app state ----------
+const S = {
+  screen: 'home',
+  movie: null,        // the saved movie record
+  frames: [],         // runtime info per photo: {id, thumbUrl, small, sw, sh, g, full?, fullUrl?}
+  lastAn: null,       // analysis of the newest photo
+  lastG: null,        // gravity when the newest photo was taken
+  live: null, prevLive: null,
+  stillTicks: 0, sawMotion: false,
+  capturing: false, countdown: false, autoArmed: false,
+  realigning: false, alignedTicks: 0, bumpVotes: 0, suppressBump: false, nextIsCut: false, glow: false,
+  tickTimer: 0,
+  exportBlob: null,
+  capCanvas: document.createElement('canvas'),
+  thumbCanvas: document.createElement('canvas'),
+};
+
+function show(screen) { S.screen = screen; document.body.dataset.screen = screen; }
+function primeGestures() { if (Settings.v.bumpWatch) Motion.request(); Sound.unlock(); }
+
+const Wake = {
+  lock: null,
+  async on() {
+    try { if ('wakeLock' in navigator && !this.lock) { this.lock = await navigator.wakeLock.request('screen'); this.lock.addEventListener('release', () => { this.lock = null; }); } } catch (e) { /* not allowed */ }
+  },
+  off() { try { if (this.lock) this.lock.release(); } catch (e) { /* already gone */ } this.lock = null; },
+};
+
+// ---------- home screen ----------
+let homeUrls = [];
+async function renderHome() {
+  show('home');
+  homeUrls.forEach((u) => URL.revokeObjectURL(u));
+  homeUrls = [];
+  const grid = $('#movieGrid');
+  let movies = [];
+  try { movies = (await DB.all('movies')).sort((a, b) => b.updated - a.updated); }
+  catch (e) { grid.innerHTML = '<p class="hint">This browser can’t save movies (is it in Private mode?).</p>'; return; }
+  const covers = await DB.getMany('frames', movies.map((m) => m.frames[0] || '-'));
+  grid.innerHTML = '';
+  const add = document.createElement('button');
+  add.className = 'card new';
+  add.innerHTML = `<span class="plus">${icon('plus')}</span><span>New movie</span>`;
+  add.onclick = () => { primeGestures(); newMovie(movies); };
+  grid.appendChild(add);
+  movies.forEach((m, i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.setAttribute('role', 'button');
+    const n = m.frames.length;
+    card.innerHTML = `<div class="poster">${n ? '' : 'No photos yet'}</div><div class="meta"><div class="name"></div>` +
+      `<div class="sub">${n} photo${n === 1 ? '' : 's'} · ${(n / (m.fps || 10)).toFixed(1)} seconds</div></div>` +
+      `<button class="del" aria-label="Delete movie">${icon('trash')}</button>`;
+    card.querySelector('.name').textContent = m.name;
+    if (covers[i] && covers[i].thumb) {
+      const u = URL.createObjectURL(covers[i].thumb);
+      homeUrls.push(u);
+      card.querySelector('.poster').style.backgroundImage = `url("${u}")`;
+    }
+    card.onclick = () => { primeGestures(); openMovie(m.id); };
+    card.querySelector('.del').onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete “${m.name}” and all its photos? This can’t be undone.`)) return;
+      await DB.deleteMovie(m);
+      renderHome();
+    };
+    grid.appendChild(card);
+  });
+  let foot = 'Movies are saved on this device. When one is finished, tap Play, then Make video to save it to Photos.';
+  try {
+    if (navigator.storage && navigator.storage.estimate) {
+      const est = await navigator.storage.estimate();
+      if (est.usage > 1e6) foot = `${Math.round(est.usage / 1e6)} MB of photos saved on this device. ` + foot;
+    }
+  } catch (e) { /* estimate not available */ }
+  $('#homeFoot').textContent = foot;
+}
+
+async function newMovie(existing) {
+  let n = existing.length + 1;
+  while (existing.some((m) => m.name === `Movie ${n}`)) n++;
+  const m = { id: uid(), name: `Movie ${n}`, created: Date.now(), updated: Date.now(), fps: 10, w: 0, h: 0, frames: [] };
+  await DB.put('movies', m);
+  openMovie(m.id);
+}
+
+// ---------- shoot screen ----------
+function toRuntime(f) {
+  return { id: f.id, full: f.full, thumbUrl: URL.createObjectURL(f.thumb), small: f.small, sw: f.sw, sh: f.sh, g: f.g || null, cut: !!f.cut, fullUrl: null };
+}
+async function getFull(f) {
+  if (f.full) return f.full;
+  const rec = await DB.get('frames', f.id);
+  return rec ? rec.full : null;
+}
+
+async function openMovie(id) {
+  const m = await DB.get('movies', id);
+  if (!m) return renderHome();
+  const recs = await DB.getMany('frames', m.frames);
+  S.movie = m;
+  S.frames = recs.filter(Boolean).map(toRuntime);
+  if (S.frames.length !== m.frames.length) { // repair a movie that lost photos
+    S.movie = { ...m, frames: S.frames.map((f) => f.id) };
+    await DB.put('movies', S.movie);
+  }
+  Object.assign(S, { realigning: false, suppressBump: false, nextIsCut: false, autoArmed: false, countdown: false, bumpVotes: 0, sawMotion: false, exportBlob: null, glow: false });
+  show('shoot');
+  $('#bump').hidden = true; $('#preview').hidden = true; $('#settings').hidden = true;
+  document.body.classList.remove('bumped', 'glow');
+  renderTitle(); renderStrip(); refreshLast(); applyMode(); applyGhostBadge();
+  if (!Settings.v.tipsSeen) $('#tipsMsg').hidden = false;
+  await startCamera();
+  Wake.on();
+  startTick();
+}
+
+function leaveShoot() {
+  stopTick(); stopCamera(); Wake.off(); closePreview();
+  $('#settings').hidden = true; $('#bump').hidden = true; $('#tipsMsg').hidden = true;
+  document.body.classList.remove('bumped', 'glow');
+  S.realigning = false; S.glow = false; S.autoArmed = false; S.countdown = false;
+  hideCountdown(); setChip(null);
+  S.frames.forEach((f) => { URL.revokeObjectURL(f.thumbUrl); if (f.fullUrl) URL.revokeObjectURL(f.fullUrl); });
+  S.frames = []; S.movie = null; S.lastAn = null; S.lastG = null;
+  renderHome();
+}
+
+function renderTitle() { $('#movieTitle').textContent = S.movie.name; }
+function updateCount() {
+  const n = S.frames.length;
+  $('#frameCount').textContent = `${n} photo${n === 1 ? '' : 's'} · ${(n / S.movie.fps).toFixed(1)}s`;
+}
+function thumbEl(f, i, ar) {
+  const b = document.createElement('button');
+  b.className = 'thumb';
+  b.style.width = `${Math.round(70 * ar)}px`;
+  b.innerHTML = `<img alt=""><span>${i + 1}</span>`;
+  b.querySelector('img').src = f.thumbUrl;
+  b.onclick = () => openPreview(S.frames.indexOf(f));
+  return b;
+}
+function renderStrip() {
+  const strip = $('#strip'), ar = S.movie.w ? S.movie.w / S.movie.h : 16 / 9;
+  strip.innerHTML = '';
+  S.frames.forEach((f, i) => strip.appendChild(thumbEl(f, i, ar)));
+  strip.scrollLeft = strip.scrollWidth;
+}
+// Newest photo changed: refresh the ghost, the comparison picture and the counter.
+function refreshLast() {
+  const last = S.frames[S.frames.length - 1];
+  S.lastAn = last ? analyze(last.small, last.sw, last.sh) : null;
+  S.lastG = last ? last.g : null;
+  updateGhosts();
+  updateCount();
+}
+
+let ghostToken = 0;
+async function updateGhosts() {
+  const token = ++ghostToken, n = S.frames.length;
+  const k = S.realigning ? Math.max(1, Settings.v.onion) : Settings.v.onion;
+  const want = [[$('#ghost1'), k >= 1 ? S.frames[n - 1] : null], [$('#ghost2'), k >= 2 ? S.frames[n - 2] : null]];
+  for (const [img, f] of want) {
+    if (!f) { img.hidden = true; img.removeAttribute('src'); continue; }
+    if (!f.fullUrl) {
+      const blob = await getFull(f);
+      if (token !== ghostToken) return;
+      if (!blob) continue;
+      f.fullUrl = URL.createObjectURL(blob);
+    }
+    img.src = f.fullUrl; img.hidden = false;
+  }
+  // Only the newest two photos are kept in memory at full size.
+  S.frames.forEach((f, i) => {
+    if (i >= n - 2) return;
+    if (f.fullUrl) { URL.revokeObjectURL(f.fullUrl); f.fullUrl = null; }
+    f.full = null;
+  });
+}
+function applyGhostBadge() {
+  const b = $('#ghostBadge'), k = Settings.v.onion;
+  b.textContent = k ? String(k) : 'off';
+  b.classList.toggle('off', !k);
+}
+
+// ---------- camera ----------
+let camStream = null;
+async function startCamera() {
+  const v = $('#cam');
+  $('#camMsg').hidden = true;
+  try {
+    if (!camStream || !camStream.active) {
+      if (FAKE) camStream = FakeCam.start();
+      else {
+        if (!window.isSecureContext) throw Object.assign(new Error('insecure'), { name: 'InsecureError' });
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw Object.assign(new Error('no camera'), { name: 'NotFoundError' });
+        camStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        });
+      }
+    }
+    if (v.srcObject !== camStream) v.srcObject = camStream;
+    await v.play().catch(() => {});
+    if (!v.videoWidth) await new Promise((r) => v.addEventListener('loadedmetadata', r, { once: true }));
+  } catch (e) {
+    camStream = null;
+    const why = e.name === 'NotAllowedError'
+      ? 'The camera is switched off for this app. A grown-up can turn it on in the iPad’s Settings (Safari → Camera), then tap Try again.'
+      : e.name === 'NotFoundError' || e.name === 'OverconstrainedError' ? 'No camera was found on this device.'
+      : e.name === 'InsecureError' ? 'The camera only works when the app is opened from its https:// address.'
+      : 'The camera could not start. Tap Try again.';
+    $('#camMsgText').textContent = why;
+    $('#camMsg').hidden = false;
+  }
+}
+function stopCamera() {
+  if (camStream && !FAKE) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
+  $('#cam').srcObject = null;
+}
+// Where pixels are read from: the live <video>, or with ?fake the test canvas itself
+// (a hidden test window delivers video frames late).
+function frameSource() { return FAKE && FakeCam.canvas ? FakeCam.canvas : $('#cam'); }
+function sourceSize(src) { return src instanceof HTMLVideoElement ? [src.videoWidth, src.videoHeight] : [src.width, src.height]; }
+
+// ---------- the watch loop: stillness, hands-free, bump alarm ----------
+function startTick() { stopTick(); S.prevLive = null; S.stillTicks = 0; S.tickTimer = setInterval(tick, TICK_MS); }
+function stopTick() { clearInterval(S.tickTimer); S.tickTimer = 0; }
+
+function tick() {
+  if (S.screen !== 'shoot' || !S.movie) return;
+  const src = frameSource(), [vw, vh] = sourceSize(src);
+  if (!vw || (src instanceof HTMLVideoElement && src.readyState < 2)) return;
+  const m = S.movie, W = m.w || vw, H = m.h || vh;
+  const wrongWay = !!m.w && Math.abs(vw / vh - W / H) > 0.03;
+  $('#rotateMsg').hidden = !wrongWay;
+  if (wrongWay) { S.prevLive = null; return; }
+  const sh = Math.round((SMALL_W * H) / W);
+  const live = analyze(Vision.grab(src, SMALL_W, sh), SMALL_W, sh);
+  const moving = S.prevLive ? changeFrac(S.prevLive, live, 10) > 0.002 : false;
+  S.prevLive = live; S.live = live;
+  if (moving) { S.stillTicks = 0; S.sawMotion = true; } else S.stillTicks++;
+  if (!Motion.still(400)) S.stillTicks = 0;
+
+  if (S.realigning) { updateRealign(live); return; }
+
+  // Bump alarm: once the view is calm, compare it with the newest photo.
+  if (Settings.v.bumpWatch && S.lastAn && !S.suppressBump && !S.capturing && !S.countdown && S.stillTicks >= 2) {
+    const tilt = Motion.angleTo(S.lastG);
+    S.bumpVotes = looksMoved(estimateShift(S.lastAn, live)) || (tilt != null && tilt > 0.6) ? S.bumpVotes + 1 : 0;
+    if (S.bumpVotes >= 2) { startRealign(); return; }
+  } else if (S.stillTicks === 0) S.bumpVotes = 0;
+
+  // Hands-free: something moved (her hands), then everything went still → snap.
+  if (Settings.v.mode === 'auto' && S.autoArmed && !S.capturing) {
+    const changed = !S.lastAn || changeFrac(S.lastAn, live, 14) > 0.0015;
+    const ready = (S.sawMotion || !S.frames.length) && changed;
+    const p = ready ? Math.min(1, S.stillTicks / 8) : 0;
+    setRing(p);
+    setChip(!S.sawMotion && S.frames.length ? 'Move your toy, then step back'
+      : !changed ? 'Move your toy a little'
+      : p > 0 ? 'Hold still…' : 'Hands out of the picture…');
+    if (p >= 1 && S.bumpVotes === 0) capture();
+  }
+}
+
+function bumpedNow() {
+  if (!Settings.v.bumpWatch || !S.lastAn || S.suppressBump || !S.live) return false;
+  const tilt = Motion.angleTo(S.lastG);
+  return looksMoved(estimateShift(S.lastAn, S.live)) || (tilt != null && tilt > 0.6);
+}
+
+function startRealign() {
+  S.realigning = true; S.alignedTicks = 0; S.countdown = false;
+  hideCountdown(); setRing(0); setChip(null); closePreview();
+  $('#bump').hidden = false; $('#bump').classList.remove('ok');
+  $('#dot').style.transform = 'translate(0px, 0px)';
+  document.body.classList.add('bumped');
+  updateGhosts();
+  Sound.uhoh();
+}
+function finishRealign(success) {
+  S.realigning = false; S.alignedTicks = 0; S.bumpVotes = 0; S.glow = false;
+  $('#bump').hidden = true; $('#glowCanvas').hidden = true; $('#glowBtn').classList.remove('on');
+  document.body.classList.remove('bumped', 'glow');
+  updateGhosts(); applyMode();
+  if (success) { Sound.chime(); toast('Lined up! Keep animating'); }
+}
+function keepSpot() {
+  S.suppressBump = true; S.nextIsCut = true;
+  finishRealign(false);
+  toast('OK! Your next photo starts from here');
+}
+// Points the dot where the camera is aiming; the kid steers it into the ring.
+function updateRealign(live) {
+  const est = estimateShift(S.lastAn, live);
+  const tilt = Motion.angleTo(S.lastG), roll = Motion.rollTo(S.lastG);
+  const lost = est.peak > 0.85 || est.edge;
+  const st = $('#stage'), sw = st.clientWidth, sh = st.clientHeight;
+  const cw = Math.min(sw, sh * (S.movie.w / S.movie.h));     // on-screen width of the picture
+  const gain = (cw / SMALL_W) * 2.5;
+  let px = -est.dx * gain, py = -est.dy * gain;
+  const maxR = Math.min(sw, sh) * 0.4, d = Math.hypot(px, py);
+  if (d > maxR) { px *= maxR / d; py *= maxR / d; }
+  const okPos = !lost && est.mag < 0.7, okTilt = tilt == null || tilt < 0.35;
+  const dot = $('#dot'), arrow = $('#arrow'), lvl = $('#level');
+  dot.hidden = lost;
+  dot.style.transform = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px)`;
+  dot.className = okPos ? 'ok' : est.mag < 2 ? 'near' : '';
+  if (!lost && Math.hypot(px, py) > 32) {
+    const ang = Math.atan2(-py, -px);
+    arrow.hidden = false;
+    arrow.style.transform = `translate(${(px + Math.cos(ang) * 36).toFixed(1)}px, ${(py + Math.sin(ang) * 36).toFixed(1)}px) rotate(${ang.toFixed(3)}rad)`;
+  } else arrow.hidden = true;
+  if (roll != null) {
+    lvl.hidden = false;
+    lvl.style.transform = `rotate(${clamp(-roll * 6, -45, 45).toFixed(1)}deg)`;
+    lvl.classList.toggle('ok', Math.abs(roll) < 0.35);
+  } else lvl.hidden = true;
+  const ok = okPos && okTilt;
+  S.alignedTicks = ok ? S.alignedTicks + 1 : 0;
+  $('#bump').classList.toggle('ok', ok);
+  $('#bumpSub').textContent = lost ? 'Find the see-through ghost picture and line it up'
+    : ok ? 'Perfect! Hold it there…'
+    : !okPos ? (est.mag < 2 ? 'So close! Just a tiny bit more' : 'Move the iPad the way the arrow points')
+    : 'Now twist it until the line is flat';
+  if (S.alignedTicks >= 3) finishRealign(true);
+}
+// "Glow": live view minus the last photo. Lined-up parts go dark, mismatched edges glow.
+function toggleGlow() {
+  S.glow = !S.glow;
+  $('#glowCanvas').hidden = !S.glow;
+  $('#glowBtn').classList.toggle('on', S.glow);
+  document.body.classList.toggle('glow', S.glow);
+  if (S.glow) drawGlow();
+}
+function drawGlow() {
+  if (!S.glow || !S.realigning) return;
+  const c = $('#glowCanvas'), src = frameSource(), g = $('#ghost1');
+  const W = 480, H = Math.round((480 * S.movie.h) / S.movie.w);
+  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+  const x = c.getContext('2d');
+  x.globalCompositeOperation = 'source-over';
+  if (sourceSize(src)[0]) x.drawImage(src, 0, 0, W, H);
+  if (g.complete && g.naturalWidth) { x.globalCompositeOperation = 'difference'; x.drawImage(g, 0, 0, W, H); x.globalCompositeOperation = 'source-over'; }
+  requestAnimationFrame(drawGlow);
+}
+
+// ---------- taking photos ----------
+function setChip(text) { const c = $('#chip'); if (!text) { c.hidden = true; return; } c.textContent = text; c.hidden = false; }
+function setRing(p) { $('#shutter .ring circle').style.strokeDashoffset = String(289 * (1 - p)); }
+function showCountdown(n) { const c = $('#countdown'); c.textContent = String(n); c.hidden = false; c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop'); }
+function hideCountdown() { $('#countdown').hidden = true; }
+function flash() { const f = $('#flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); }
+
+function applyMode() {
+  const mode = Settings.v.mode, armed = mode === 'auto' && S.autoArmed;
+  $$('.mode').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  $('#shutterIcon').innerHTML = icon(mode === 'timer' ? 'timer' : mode === 'auto' ? (armed ? 'pause' : 'hand') : 'camera');
+  $('#shutter').classList.toggle('armed', armed);
+  $('#shutter').setAttribute('aria-label', mode === 'auto' ? (armed ? 'Stop hands-free' : 'Start hands-free') : 'Take photo');
+  setRing(0);
+  setChip(armed ? (S.frames.length ? 'Move your toy, then step back' : 'Step back, the first photo is coming') : null);
+}
+
+async function waitStill(maxMs) {
+  const t0 = performance.now();
+  while (performance.now() - t0 < maxMs) {
+    if (S.stillTicks >= 2 && Motion.still(300)) break;
+    if (performance.now() - t0 > 250) setChip('Hold still…');
+    await sleep(50);
+  }
+  setChip(null);
+}
+
+async function onShutter() {
+  primeGestures();
+  if (S.realigning || !S.movie) return;
+  const mode = Settings.v.mode;
+  if (mode === 'auto') {
+    S.autoArmed = !S.autoArmed; S.sawMotion = false; S.stillTicks = 0;
+    applyMode();
+    return;
+  }
+  if (S.countdown) { S.countdown = false; hideCountdown(); return; } // tap again to cancel
+  if (mode === 'timer') {
+    S.countdown = true;
+    for (let n = 3; n >= 1; n--) {
+      if (!S.countdown) return;
+      showCountdown(n); Sound.beep();
+      await sleep(850);
+    }
+    if (!S.countdown) return;
+    S.countdown = false; hideCountdown();
+    await waitStill(900);
+    return capture();
+  }
+  await waitStill(1500);
+  await capture();
+}
+
+async function capture() {
+  if (S.capturing || !S.movie || S.realigning) return;
+  const src = frameSource(), [vw, vh] = sourceSize(src);
+  if (!vw) return;
+  if (bumpedNow()) { startRealign(); return; }
+  S.capturing = true;
+  try {
+    const m = S.movie;
+    let W = m.w, H = m.h;
+    if (!W) { const k = Math.min(1, MAX_SIDE / Math.max(vw, vh)); W = Math.round((vw * k) / 2) * 2; H = Math.round((vh * k) / 2) * 2; }
+    else if (Math.abs(vw / vh - W / H) > 0.03) { $('#rotateMsg').hidden = false; return; }
+    const c = S.capCanvas;
+    c.width = W; c.height = H;
+    c.getContext('2d').drawImage(src, 0, 0, W, H);
+    flash(); Sound.shutter();
+    const sh = Math.round((SMALL_W * H) / W), small = Vision.grab(c, SMALL_W, sh);
+    const t = S.thumbCanvas, tw = 240, th = Math.round((tw * H) / W);
+    t.width = tw; t.height = th;
+    t.getContext('2d').drawImage(c, 0, 0, tw, th);
+    const [full, thumb] = await Promise.all([toBlob(c, 'image/jpeg', 0.9), toBlob(t, 'image/jpeg', 0.75)]);
+    const frame = { id: uid(), movieId: m.id, full, thumb, small, sw: SMALL_W, sh, g: Motion.snapshot(), cut: S.nextIsCut, t: Date.now() };
+    const next = { ...m, w: W, h: H, frames: [...m.frames, frame.id], updated: Date.now() };
+    await DB.saveFrame(frame, next);
+    S.movie = next;
+    const rf = toRuntime(frame);
+    S.frames.push(rf);
+    $('#strip').appendChild(thumbEl(rf, S.frames.length - 1, W / H));
+    $('#strip').scrollLeft = $('#strip').scrollWidth;
+    Object.assign(S, { nextIsCut: false, suppressBump: false, sawMotion: false, bumpVotes: 0, stillTicks: 0, exportBlob: null });
+    refreshLast();
+    if (S.frames.length === 1 && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    if (Settings.v.mode === 'auto' && S.autoArmed) setChip('Move your toy, then step back');
+  } catch (e) {
+    console.error(e);
+    toast('Oops, that photo could not be saved');
+  } finally {
+    S.capturing = false;
+  }
+}
+
+async function undo() {
+  primeGestures();
+  if (!S.frames.length || S.capturing) return;
+  await deleteFrameAt(S.frames.length - 1);
+  Sound.pop();
+  toast('Last photo removed');
+}
+async function deleteFrameAt(i) {
+  const f = S.frames[i];
+  if (!f) return;
+  const next = { ...S.movie, frames: S.movie.frames.filter((id) => id !== f.id), updated: Date.now() };
+  if (!next.frames.length) { next.w = 0; next.h = 0; } // an empty movie can pick its shape again
+  await DB.deleteFrames([f.id], next);
+  S.movie = next;
+  S.frames.splice(i, 1);
+  URL.revokeObjectURL(f.thumbUrl);
+  if (f.fullUrl) URL.revokeObjectURL(f.fullUrl);
+  S.exportBlob = null; S.bumpVotes = 0;
+  renderStrip(); refreshLast();
+}
+// Copying a photo makes that moment last twice as long (a "hold").
+async function duplicateFrameAt(i) {
+  const f = S.frames[i];
+  const rec = f && (await DB.get('frames', f.id));
+  if (!rec) return;
+  const copy = { ...rec, id: uid(), t: Date.now(), cut: false };
+  const ids = [...S.movie.frames];
+  ids.splice(i + 1, 0, copy.id);
+  const next = { ...S.movie, frames: ids, updated: Date.now() };
+  await DB.saveFrame(copy, next);
+  S.movie = next;
+  S.frames.splice(i + 1, 0, toRuntime(copy));
+  S.exportBlob = null;
+  renderStrip(); refreshLast();
+}
+
+// ---------- photo preview ----------
+let previewIndex = -1, previewUrl = null;
+async function openPreview(i) {
+  if (!S.frames.length) return closePreview();
+  previewIndex = clamp(i, 0, S.frames.length - 1);
+  const blob = await getFull(S.frames[previewIndex]);
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = blob ? URL.createObjectURL(blob) : null;
+  if (previewUrl) $('#previewImg').src = previewUrl;
+  $('#pvLabel').textContent = `Photo ${previewIndex + 1} of ${S.frames.length}`;
+  $('#preview').hidden = false;
+  $$('#strip .thumb').forEach((t, k) => t.classList.toggle('sel', k === previewIndex));
+}
+function closePreview() {
+  $('#preview').hidden = true;
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = null; previewIndex = -1;
+  $$('#strip .thumb.sel').forEach((t) => t.classList.remove('sel'));
+}
+
+// ---------- settings + rename ----------
+function seg(el, options, value, onPick) {
+  el.innerHTML = '';
+  for (const [val, label] of options) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.classList.toggle('on', val === value);
+    b.onclick = () => { onPick(val); $$('button', el).forEach((x) => x.classList.toggle('on', x === b)); };
+    el.appendChild(b);
+  }
+}
+function toggleSettings() {
+  const s = $('#settings');
+  if (!s.hidden) { s.hidden = true; return; }
+  seg($('#fpsSeg'), FPS_CHOICES.map((f) => [f, String(f)]), S.movie.fps, setFps);
+  seg($('#onionSeg'), [[0, 'Off'], [1, '1'], [2, '2']], Settings.v.onion, (v) => { Settings.v.onion = v; Settings.save(); applyGhostBadge(); updateGhosts(); });
+  seg($('#bumpSeg'), [[true, 'On'], [false, 'Off']], Settings.v.bumpWatch, (v) => { Settings.v.bumpWatch = v; Settings.save(); S.bumpVotes = 0; if (v) Motion.request(); });
+  seg($('#soundSeg'), [[true, 'On'], [false, 'Off']], Settings.v.sound, (v) => { Settings.v.sound = v; Settings.save(); });
+  s.hidden = false;
+}
+async function setFps(f) {
+  S.movie = { ...S.movie, fps: f, updated: Date.now() };
+  await DB.put('movies', S.movie);
+  S.exportBlob = null;
+  updateCount();
+  if (S.screen === 'play') Player.seek(Player.i);
+}
+async function renameMovie() {
+  const name = prompt('Name your movie', S.movie.name);
+  if (name == null) return;
+  const clean = name.trim().slice(0, 40);
+  if (!clean) return;
+  S.movie = { ...S.movie, name: clean, updated: Date.now() };
+  await DB.put('movies', S.movie);
+  renderTitle();
+}
+
+// ---------- play screen ----------
+const Player = {
+  i: 0, shown: -1, playing: false, loop: true, raf: 0, t0: 0, token: 0, cache: new Map(), canvas: null, ctx: null,
+  get n() { return S.frames.length; },
+  open() {
+    const m = S.movie;
+    this.canvas = $('#playCanvas');
+    this.canvas.width = m.w || 1280; this.canvas.height = m.h || 720;
+    this.ctx = this.canvas.getContext('2d');
+    this.ctx.fillStyle = '#000'; this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    $('#scrub').max = String(Math.max(0, this.n - 1));
+    this.i = 0; this.shown = -1;
+  },
+  bitmap(k) {
+    if (!this.cache.has(k)) {
+      const f = S.frames[k];
+      this.cache.set(k, f ? getFull(f).then((b) => (b ? decodeImage(b) : null)).catch(() => null) : Promise.resolve(null));
+    }
+    return this.cache.get(k);
+  },
+  // Keep a few decoded photos around the playhead; free the rest.
+  trim(center) {
+    for (const [k, p] of this.cache) {
+      const ahead = (k - center + this.n) % this.n;
+      if (ahead > 6 && ahead < this.n - 2) { this.cache.delete(k); p.then((b) => b && b.close && b.close()); }
+    }
+  },
+  async draw(k) {
+    const token = ++this.token, b = await this.bitmap(k);
+    if (token !== this.token || !b) return;
+    this.ctx.drawImage(b, 0, 0, this.canvas.width, this.canvas.height);
+    this.shown = k;
+    $('#scrub').value = String(k);
+    $('#playLabel').textContent = `${k + 1} / ${this.n}`;
+  },
+  prefetch(k) { for (let j = 1; j <= 4; j++) this.bitmap((k + j) % this.n); this.trim(k); },
+  play() {
+    if (!this.n) return;
+    if (!this.loop && this.i >= this.n - 1) this.i = 0;
+    this.playing = true;
+    this.t0 = performance.now() - (this.i * 1000) / S.movie.fps;
+    cancelAnimationFrame(this.raf);
+    this.frame();
+    setPlayIcon(true);
+  },
+  pause() { this.playing = false; cancelAnimationFrame(this.raf); setPlayIcon(false); },
+  frame() {
+    if (!this.playing) return;
+    const fps = S.movie.fps;
+    let k = Math.floor(((performance.now() - this.t0) * fps) / 1000);
+    if (k >= this.n) {
+      if (this.loop) { this.t0 += (this.n * 1000) / fps; k %= this.n; }
+      else { this.i = this.n - 1; this.draw(this.i); this.pause(); return; }
+    }
+    if (k !== this.i || this.shown === -1) { this.i = k; this.draw(k); this.prefetch(k); }
+    this.raf = requestAnimationFrame(() => this.frame());
+  },
+  seek(k) {
+    this.i = clamp(k, 0, Math.max(0, this.n - 1));
+    this.t0 = performance.now() - (this.i * 1000) / S.movie.fps;
+    this.draw(this.i); this.prefetch(this.i);
+  },
+  close() {
+    this.pause();
+    for (const p of this.cache.values()) p.then((b) => b && b.close && b.close());
+    this.cache.clear();
+  },
+};
+function setPlayIcon(playing) { $('#playPause').innerHTML = icon(playing ? 'pause' : 'play'); }
+
+function openPlayer() {
+  primeGestures();
+  if (!S.frames.length) { toast('Take some photos first!'); return; }
+  stopTick(); closePreview();
+  S.autoArmed = false; S.countdown = false; hideCountdown(); applyMode();
+  $('#settings').hidden = true;
+  show('play');
+  const p = $('#play');
+  p.classList.remove('open'); void p.offsetWidth;
+  Player.open(); Player.seek(0); setPlayIcon(false);
+  seg($('#playFps'), FPS_CHOICES.map((f) => [f, String(f)]), S.movie.fps, setFps);
+  setTimeout(() => p.classList.add('open'), 60);
+  setTimeout(() => { if (S.screen === 'play') Player.play(); }, 700);
+}
+function closePlayer() {
+  Player.close();
+  $('#exportBox').hidden = true;
+  show('shoot');
+  $('#cam').play().catch(() => {});
+  startTick();
+}
+
+// ---------- making the video ----------
+function setExportProgress(p) { $('#exportBar').style.width = `${Math.round(p * 100)}%`; }
+async function makeVideo() {
+  primeGestures();
+  if (!S.frames.length) return;
+  Player.pause();
+  $('#exportBox').hidden = false;
+  $('#saveVideo').hidden = true;
+  $('#exportTitle').textContent = 'Making your movie…';
+  $('#exportMsg').textContent = 'Keep this screen open.';
+  setExportProgress(0);
+  if (!S.exportBlob) {
+    try { S.exportBlob = await exportMovie(setExportProgress); }
+    catch (e) {
+      console.error(e);
+      $('#exportTitle').textContent = 'The video could not be made';
+      $('#exportMsg').textContent = String((e && e.message) || e);
+      return;
+    }
+  }
+  setExportProgress(1);
+  const mb = (S.exportBlob.size / 1e6).toFixed(1), n = S.frames.length;
+  $('#exportTitle').textContent = 'Your movie is ready!';
+  $('#exportMsg').textContent = `${n} photos · ${(n / S.movie.fps).toFixed(1)} seconds · ${mb} MB`;
+  $('#saveLabel').textContent = navigator.canShare ? 'Save to Photos' : 'Download';
+  $('#saveVideo').hidden = false;
+}
+
+async function exportMovie(onProgress) {
+  const { w, h, fps } = S.movie;
+  if (window.VideoEncoder && window.VideoFrame) {
+    try { return await exportWithWebCodecs(w, h, fps, onProgress); }
+    catch (e) { console.warn('WebCodecs export failed, trying the slower way', e); }
+  }
+  if (window.MediaRecorder && HTMLCanvasElement.prototype.captureStream) return exportWithRecorder(w, h, fps, onProgress);
+  throw new Error('This browser can’t make videos. Try updating the iPad.');
+}
+
+// Fast path: encode each photo as one H.264 frame, then wrap them in an MP4.
+async function exportWithWebCodecs(w, h, fps, onProgress) {
+  await loadScript(MUXER_URL);
+  const { Muxer, ArrayBufferTarget } = window.Mp4Muxer;
+  const mbs = Math.ceil(w / 16) * Math.ceil(h / 16);
+  const level = mbs <= 3600 ? '1f' : mbs <= 8192 ? '28' : '33';
+  const bitrate = Math.round(clamp(w * h * fps * 0.4, 2e6, 12e6));
+  const candidates = [['avc1.6400' + level, 'avc'], ['avc1.4d00' + level, 'avc'], ['avc1.42e0' + level, 'avc'], ['vp09.00.40.08', 'vp9'], ['av01.0.08M.08', 'av1']];
+  let chosen = null;
+  for (const [codec, mux] of candidates) {
+    const cfg = { codec, width: w, height: h, bitrate, framerate: fps };
+    if (mux === 'avc') cfg.avc = { format: 'avc' };
+    try { const s = await VideoEncoder.isConfigSupported(cfg); if (s.supported) { chosen = { cfg, mux }; break; } } catch (e) { /* try the next one */ }
+  }
+  if (!chosen) throw new Error('No video encoder available');
+  const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: chosen.mux, width: w, height: h, frameRate: fps }, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
+  let encErr = null;
+  const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { encErr = e; } });
+  enc.configure(chosen.cfg);
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d'), dur = Math.round(1e6 / fps), n = S.frames.length, gop = Math.max(1, fps * 2);
+  for (let i = 0; i < n; i++) {
+    if (encErr) throw encErr;
+    const blob = await getFull(S.frames[i]);
+    const img = await decodeImage(blob);
+    let vf;
+    if (img.width === w && img.height === h && window.ImageBitmap && img instanceof ImageBitmap) vf = new VideoFrame(img, { timestamp: i * dur, duration: dur });
+    else { ctx.drawImage(img, 0, 0, w, h); vf = new VideoFrame(canvas, { timestamp: i * dur, duration: dur }); }
+    enc.encode(vf, { keyFrame: i % gop === 0 });
+    vf.close();
+    if (img.close) img.close();
+    while (enc.encodeQueueSize > 3) await sleep(4);
+    onProgress(((i + 1) / n) * 0.96);
+  }
+  await enc.flush();
+  if (encErr) throw encErr;
+  enc.close();
+  muxer.finalize();
+  return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+}
+
+// Fallback for older iPads: play the photos onto a canvas and record it in real time.
+async function exportWithRecorder(w, h, fps, onProgress) {
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  const mime = types.find((t) => MediaRecorder.isTypeSupported(t)) || '';
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d'), n = S.frames.length;
+  let img = await decodeImage(await getFull(S.frames[0]));
+  ctx.drawImage(img, 0, 0, w, h);
+  const rec = new MediaRecorder(canvas.captureStream(fps), mime ? { mimeType: mime, videoBitsPerSecond: 8e6 } : undefined);
+  const chunks = [];
+  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise((r) => { rec.onstop = r; });
+  rec.start();
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) {
+    if (i > 0) img = await decodeImage(await getFull(S.frames[i]));
+    const wait = t0 + (i * 1000) / fps - performance.now();
+    if (wait > 0) await sleep(wait);
+    ctx.drawImage(img, 0, 0, w, h);
+    if (img.close) img.close();
+    onProgress((i + 1) / n);
+  }
+  await sleep(1000 / fps + 80);
+  rec.stop();
+  await stopped;
+  return new Blob(chunks, { type: (rec.mimeType || mime || 'video/mp4').split(';')[0] });
+}
+
+async function saveVideo() {
+  const blob = S.exportBlob;
+  if (!blob) return;
+  const ext = blob.type.includes('webm') ? 'webm' : 'mp4';
+  const base = (S.movie.name || 'movie').replace(/[^\w\- ]+/g, '').trim() || 'movie';
+  const file = new File([blob], `${base}.${ext}`, { type: blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = file.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+// ---------- wiring ----------
+function onKey(e) {
+  if (e.target.closest && e.target.closest('input,button,textarea')) return;
+  if (S.screen === 'shoot') {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onShutter(); }
+    else if (e.key === 'Backspace') { e.preventDefault(); undo(); }
+    else if (e.key === 'p') openPlayer();
+    else if (e.key === 'Escape') { closePreview(); $('#settings').hidden = true; }
+  } else if (S.screen === 'play') {
+    if (e.key === ' ') { e.preventDefault(); if (Player.playing) Player.pause(); else Player.play(); }
+    else if (e.key === 'Escape') closePlayer();
+  }
+}
+function onVisibility() {
+  if (document.hidden) {
+    if (S.screen === 'shoot') stopCamera();
+    if (S.screen === 'play') Player.pause();
+    Wake.off();
+  } else if (S.screen === 'shoot') { startCamera(); Wake.on(); }
+}
+
+function wire() {
+  $('#homeBtn').onclick = leaveShoot;
+  $('#movieTitle').onclick = renameMovie;
+  $('#ghostBtn').onclick = () => {
+    Settings.v.onion = (Settings.v.onion + 1) % 3; Settings.save();
+    applyGhostBadge(); updateGhosts();
+    toast(Settings.v.onion ? `Ghost: last ${Settings.v.onion === 1 ? 'photo' : '2 photos'}` : 'Ghost off');
+  };
+  $('#settingsBtn').onclick = toggleSettings;
+  $$('.mode').forEach((b) => {
+    b.onclick = () => {
+      primeGestures();
+      Settings.v.mode = b.dataset.mode; Settings.save();
+      S.autoArmed = false; S.countdown = false; hideCountdown();
+      applyMode();
+    };
+  });
+  $('#shutter').onclick = onShutter;
+  $('#undoBtn').onclick = undo;
+  $('#playBtn').onclick = openPlayer;
+  $('#glowBtn').onclick = toggleGlow;
+  $('#keepBtn').onclick = keepSpot;
+  $('#camRetry').onclick = () => { primeGestures(); startCamera(); };
+  $('#tipsOk').onclick = () => { Settings.v.tipsSeen = true; Settings.save(); $('#tipsMsg').hidden = true; };
+  $('#tipsBtn').onclick = () => { $('#settings').hidden = true; $('#tipsMsg').hidden = false; };
+  $('#pvPrev').onclick = () => openPreview(previewIndex - 1);
+  $('#pvNext').onclick = () => openPreview(previewIndex + 1);
+  $('#pvCopy').onclick = async () => { const i = previewIndex; await duplicateFrameAt(i); openPreview(i + 1); toast('Copied! That moment now lasts longer'); };
+  $('#pvDelete').onclick = async () => {
+    const i = previewIndex;
+    await deleteFrameAt(i);
+    Sound.pop();
+    if (S.frames.length) openPreview(Math.min(i, S.frames.length - 1)); else closePreview();
+  };
+  $('#pvClose').onclick = closePreview;
+  $('#playBack').onclick = closePlayer;
+  $('#playPause').onclick = () => { if (Player.playing) Player.pause(); else Player.play(); };
+  $('#scrub').oninput = (e) => { Player.pause(); Player.seek(Number(e.target.value)); };
+  $('#loopBtn').onclick = () => { Player.loop = !Player.loop; $('#loopBtn').classList.toggle('on', Player.loop); };
+  $('#makeVideo').onclick = makeVideo;
+  $('#saveVideo').onclick = saveVideo;
+  $('#exportClose').onclick = () => { $('#exportBox').hidden = true; };
+  // Drop the finished animations, or they replay whenever the shoot screen is shown again.
+  $('#flash').addEventListener('animationend', () => $('#flash').classList.remove('go'));
+  $('#countdown').addEventListener('animationend', () => $('#countdown').classList.remove('pop'));
+  document.addEventListener('keydown', onKey);
+  document.addEventListener('visibilitychange', onVisibility);
+  document.addEventListener('pointerdown', (e) => {
+    const s = $('#settings'), t = e.target;
+    if (!s.hidden && !s.contains(t) && !(t.closest && t.closest('#settingsBtn'))) s.hidden = true;
+  });
+}
+
+(async function init() {
+  Settings.load();
+  hydrateIcons();
+  wire();
+  try { await DB.open(); }
+  catch (e) { $('#movieGrid').innerHTML = '<p class="hint">This browser can’t save movies (is it in Private mode?).</p>'; return; }
+  renderHome();
+})();
+
+if ('serviceWorker' in navigator && !FAKE && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+}
+</script>
+</body>
+</html>
