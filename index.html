@@ -172,6 +172,9 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
 #studio{grid-template-columns:minmax(0,1fr) 360px;grid-template-rows:60px minmax(0,1fr) 84px 72px;grid-template-areas:"top top" "view panel" "time panel" "tabs tabs";padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);background:#0d0a1a}
 .st-top{grid-area:top;display:flex;align-items:center;gap:10px;padding:0 12px;min-width:0}
 .st-top .pill.on{background:var(--coral);color:#fff}
+.st-top .icon-btn.off{opacity:.4}
+.st-top .title-btn{max-width:30%}
+@media (max-width:900px){.st-top .chip:not(.busy){display:none}}
 .st-view{grid-area:view;position:relative;display:grid;place-items:center;overflow:hidden;margin:0 6px 0 12px;touch-action:none;min-height:0}
 .st-view canvas{grid-area:1/1;background:#000;border-radius:4px}
 #stOver{background:transparent;pointer-events:none}
@@ -194,6 +197,9 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
 .st-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
 .st-row .label,.st-slider .label{font-weight:800;font-size:14px;min-width:64px}
 .st-slider{display:flex;align-items:center;gap:10px;margin:8px 0}
+.st-speed .st-row{flex-wrap:nowrap;margin:4px 0}
+.st-speed .emo{font-size:26px;line-height:1}
+.st-speed-read{text-align:center;font-weight:800;font-size:15px;margin-bottom:4px}
 .st-range{flex:1;min-width:0;accent-color:var(--yellow);height:32px}
 .st-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:14px;background:var(--panel2);margin:8px 0;text-align:left}
 .st-toggle b{display:block;font-size:16px}
@@ -373,7 +379,7 @@ body[data-screen=studio] .fake-panel,body[data-screen=home] .fake-panel{display:
 
   <div id="settings" class="popover" hidden>
     <h3>Settings</h3>
-    <div class="row"><span>Speed</span><div class="seg" id="fpsSeg"></div></div>
+    <div id="fpsPick"></div>
     <p class="hint">Photos per second. More photos per second looks smoother but takes more photos.</p>
     <div class="row"><span>Ghost photos</span><div class="seg" id="onionSeg"></div></div>
     <div class="row"><span>Bump alarm</span><div class="seg" id="bumpSeg"></div></div>
@@ -393,6 +399,8 @@ body[data-screen=studio] .fake-panel,body[data-screen=home] .fake-panel{display:
     <span class="chip" id="stLen"></span>
     <span class="spacer"></span>
     <span class="chip busy" id="stBusy" hidden></span>
+    <button class="icon-btn off" id="stUndo" aria-label="Undo"><i data-icon="undo"></i></button>
+    <button class="icon-btn off" id="stRedo" aria-label="Redo"><i data-icon="redo"></i></button>
     <button class="pill" id="stPlay"></button>
     <button class="pill primary" id="stMake"><i data-icon="film"></i><span>Make video</span></button>
   </div>
@@ -446,9 +454,9 @@ const MUXER_URL = 'https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.
 const MAX_SIDE = 1920;   // longest side of a saved photo
 const PHOTO_Q = 0.84;    // JPEG quality: a third smaller than 0.9 and looks the same in a movie
 const SMALL_W = 160;     // width of the tiny copies used to watch the camera
-const FPS_CHOICES = [5, 8, 10, 12, 15];
+const FPS_CHOICES = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15];   // photos per second, slow motion to fast
 const TICK_MS = 120;     // how often the camera is checked
-const VERSION = 3;       // shown on the home screen, so you can tell an update arrived
+const VERSION = 4;       // shown on the home screen, so you can tell an update arrived
 
 const ICONS = {
   home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/>',
@@ -457,6 +465,7 @@ const ICONS = {
   play: '<path d="M7.5 4.8v14.4L19 12z" fill="currentColor"/>',
   pause: '<rect x="6.5" y="5" width="3.8" height="14" rx="1" fill="currentColor"/><rect x="13.7" y="5" width="3.8" height="14" rx="1" fill="currentColor"/>',
   undo: '<path d="M9 5 4 10l5 5"/><path d="M4 10h10a6 6 0 0 1 0 12h-3"/>',
+  redo: '<path d="M15 5l5 5-5 5"/><path d="M20 10H10a6 6 0 0 0 0 12h3"/>',
   camera: '<path d="M3 8.5a2 2 0 0 1 2-2h2.5L9 4.5h6l1.5 2H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.8"/>',
   timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M9.5 2.5h5M12 2.5V6"/>',
   hand: '<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 10.5V4a1.5 1.5 0 0 1 3 0v7"/><path d="M14 10.5V5.5a1.5 1.5 0 0 1 3 0V14"/><path d="M8 12.5 6.6 11a1.6 1.6 0 0 0-2.4 2.1L8 19a5 5 0 0 0 4 2h1a4 4 0 0 0 4-4v-3"/>',
@@ -1539,7 +1548,7 @@ function seg(el, options, value, onPick) {
 }
 function toggleSettings() {
   togglePop('settings', () => {
-    seg($('#fpsSeg'), FPS_CHOICES.map((f) => [f, String(f)]), S.movie.fps, setFps);
+    $('#fpsPick').replaceChildren(Studio.ui.speed(S.movie.fps, setFps));
     seg($('#onionSeg'), [[0, 'Off'], [1, '1'], [2, '2']], Settings.v.onion, (v) => { Settings.v.onion = v; Settings.save(); applyGhostBadge(); updateGhosts(); });
     seg($('#bumpSeg'), [[true, 'On'], [false, 'Off']], Settings.v.bumpWatch, (v) => { Settings.v.bumpWatch = v; Settings.save(); S.bumpVotes = 0; if (v) Motion.request(); });
     seg($('#soundSeg'), [[true, 'On'], [false, 'Off']], Settings.v.sound, (v) => { Settings.v.sound = v; Settings.save(); });

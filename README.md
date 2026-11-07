@@ -24,7 +24,14 @@ Photos are always saved whole, so framing and scenes can be changed later.
 - **Words:** speech and thought bubbles, shouts, captions, comic words and emoji stickers.
 - **Sound:** record your voice over the movie, music tracks, and sound effects on any photo.
 - **Titles:** opening title in six styles, theater curtains with clapping, and credits.
-- **Speed:** photos per second, hold a photo longer, boomerang.
+- **Speed:** 1 to 15 photos per second (turtle to rabbit), hold a photo longer, boomerang, and
+  *Smooth moves*: in-between pictures that follow the motion between photos, so toys glide
+  (Smooth aims for about 12 pictures a second, Extra smooth about 24). Playback skips in-betweens
+  it can't draw in time; the saved video always has them all.
+
+Tap anything on the picture (bubbles, words, stickers) to move it, resize it with the yellow corner,
+change its words or delete it with ✕. **Undo / Redo** at the top covers every Studio change,
+including deleted stickers, backgrounds, eraser marks and photos.
 
 **Make video** saves an MP4 (H.264, with AAC sound when the iPad supports it) to Photos.
 Nothing changes the photos; every choice is kept with the movie.

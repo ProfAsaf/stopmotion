@@ -80,7 +80,7 @@ const Fx = (() => {
       curtains: true, applause: true,
       credits: { on: true, director: (typeof Settings !== 'undefined' && Settings.v.director) || '', cast: '', thanks: '', end: 'The End' },
       stickers: [], sounds: [], voices: [], music: { track: 'none', vol: 0.6 },
-      holds: {}, boomerang: false,
+      holds: {}, boomerang: false, smooth: 0,
     };
   }
   function ensureEdit(m) {
@@ -718,34 +718,320 @@ const Fx = (() => {
     const res = await lib.shotRes(k, o.keyRes || 480);
     paintShot(x, W, H, lib, k, res, o);
   }
-  function paintShot(x, W, H, lib, k, r, o = {}) {
-    const m = lib.m, ed = m.edit, W0 = m.w, H0 = m.h;
-    Art.reset(x);
-    if (!r || !r.img) { x.fillStyle = '#000'; x.fillRect(0, 0, W, H); return; }
-    const O = outMatrix(frameGeom(m, o.full), W, H), A = lib.alignOf(r.f.id), T = M.mul(O, ed.steady ? M.sim(A) : M.id());
-    const L = scratch('L', W, H), lx = L.getContext('2d');
+  // One photo's layers in output pixels: the photo itself (lined up, rubbed out, light evened) and,
+  // with a magic background, its cut-out toys (fg) and their shadow (sh). Scratch canvases unless `own`.
+  function layersOf(lib, k, r, O, W, H, raw, own) {
+    const m = lib.m, ed = m.edit, W0 = m.w, H0 = m.h, get = (n) => (own ? mk(W, H) : scratch(n, W, H));
+    const A = lib.alignOf(r.f.id), T = M.mul(O, ed.steady ? M.sim(A) : M.id());
+    const L = get('L'), lx = L.getContext('2d');
     Art.reset(lx); lx.fillStyle = '#000'; lx.fillRect(0, 0, W, H); lx.imageSmoothingQuality = 'high';
     if (ed.steady && r.under && r.under.img) { M.set(lx, M.mul(O, M.sim(r.under.sim))); lx.drawImage(r.under.img, 0, 0, W0, H0); }
     lib.paintClean(lx, T, r, 'E');
     if (ed.even) gainsOn(L, lx, lib.gains(k));
     Art.reset(lx);
-    if (r.key && !o.raw) {
-      Art.drawBg(x, W, H, ed.scene.bg, k, r.bg);
-      const KT = M.mul(T, M.scale(W0 / r.key.w, H0 / r.key.h));
-      x.imageSmoothingQuality = 'high';
-      if (ed.scene.shadows !== false) { M.set(x, KT); x.globalAlpha = 0.85; x.drawImage(r.key.shadow, 0, 0); Art.reset(x); }
-      const F = scratch('F', W, H), fx = F.getContext('2d');
-      Art.reset(fx); fx.clearRect(0, 0, W, H); fx.drawImage(L, 0, 0);
-      fx.globalCompositeOperation = 'destination-in'; fx.imageSmoothingQuality = 'high'; M.set(fx, KT); fx.drawImage(r.key.alpha, 0, 0);
-      Art.reset(fx);
-      x.drawImage(F, 0, 0);
-    } else x.drawImage(L, 0, 0);
+    if (!r.key || raw) return { L, fg: L, sh: null, keyed: false };
+    const KT = M.mul(T, M.scale(W0 / r.key.w, H0 / r.key.h));
+    const F = get('F'), fx = F.getContext('2d');
+    Art.reset(fx); fx.clearRect(0, 0, W, H); fx.drawImage(L, 0, 0);
+    fx.globalCompositeOperation = 'destination-in'; fx.imageSmoothingQuality = 'high'; M.set(fx, KT); fx.drawImage(r.key.alpha, 0, 0);
+    Art.reset(fx);
+    let sh = null;
+    if (ed.scene.shadows !== false) {
+      sh = get('S');
+      const sx = sh.getContext('2d');
+      Art.reset(sx); sx.clearRect(0, 0, W, H); sx.imageSmoothingQuality = 'high';
+      M.set(sx, KT); sx.globalAlpha = 0.85; sx.drawImage(r.key.shadow, 0, 0); Art.reset(sx);
+    }
+    return { L, fg: F, sh, keyed: true };
+  }
+  // Puts a frame together: background, shadow, toys, then effects, look, lights and stickers.
+  // kf may fall between photos (in-between pictures); looks, lights and stickers follow photo sk.
+  function finishFrame(x, W, H, lib, kf, ly, bg, o, sk) {
+    const ed = lib.m.edit, k = Math.floor(kf);
+    Art.reset(x);
+    if (ly.keyed) {
+      Art.drawBg(x, W, H, ed.scene.bg, kf, bg);
+      if (ly.sh) x.drawImage(ly.sh, 0, 0);
+      x.drawImage(ly.fg, 0, 0);
+    } else x.drawImage(ly.L, 0, 0);
     if (o.raw) return;
-    if (ed.scene.fg && ed.scene.fg !== 'none') Art.drawEffect(x, W, H, ed.scene.fg, k);
+    if (ed.scene.fg && ed.scene.fg !== 'none') Art.drawEffect(x, W, H, ed.scene.fg, kf);
     if (ed.look && ed.look !== 'none') Art.applyLook(x, W, H, ed.look, ed.lookAmt == null ? 0.85 : ed.lookAmt, k);
     if (ed.light && ed.light !== 'none') Art.drawLight(x, W, H, ed.light, k, ed.spot);
     Art.reset(x);
-    if (!o.noStickers) for (const s of stickersAt(lib, k)) Art.drawSticker(x, W, H, s);
+    if (!o.noStickers) for (const s of stickersAt(lib, sk == null ? k : sk)) Art.drawSticker(x, W, H, s);
+  }
+  function paintShot(x, W, H, lib, k, r, o = {}) {
+    Art.reset(x);
+    if (!r || !r.img) { x.fillStyle = '#000'; x.fillRect(0, 0, W, H); return; }
+    const O = outMatrix(frameGeom(lib.m, o.full), W, H);
+    finishFrame(x, W, H, lib, k, layersOf(lib, k, r, O, W, H, o.raw), r.bg, o, k);
+  }
+
+  // ---------- smooth moves: in-between pictures that follow the motion ----------
+  // Motion is followed on small grey copies, coarse to fine; things that didn't move stay put.
+  const FLOW_W = 320, G = 4;
+  function grayOf(c, w, h) {
+    const g = scratch('flowGray', w, h), x = ctxR(g);
+    x.setTransform(1, 0, 0, 1, 0, 0); x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';
+    x.imageSmoothingQuality = 'high'; x.drawImage(c, 0, 0, w, h);
+    const d = x.getImageData(0, 0, w, h).data, out = new Float32Array(w * h);
+    for (let i = 0, p = 0; i < out.length; i++, p += 4) out[i] = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+    return out;
+  }
+  function half(L) {
+    const w = L.w >> 1, h = L.h >> 1, o = new Float32Array(w * h), d = L.d, W = L.w;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = 2 * y * W + 2 * x; o[y * w + x] = (d[i] + d[i + 1] + d[i + W] + d[i + W + 1]) * 0.25; }
+    return { d: o, w, h };
+  }
+  // Mean difference between a box of A and the same box of B moved by (dx, dy).
+  function boxCost(A, B, x0, y0, x1, y1, dx, dy) {
+    const w = A.w, h = A.h, a = A.d, b = B.d;
+    const xa = Math.max(x0, 0, -dx), xb = Math.min(x1, w, w - dx), ya = Math.max(y0, 0, -dy), yb = Math.min(y1, h, h - dy);
+    if ((xb - xa) * 2 < x1 - x0 || (yb - ya) * 2 < y1 - y0) return Infinity;
+    let s = 0;
+    for (let y = ya; y < yb; y++) {
+      const ra = y * w, rb = (y + dy) * w + dx;
+      for (let x = xa; x < xb; x++) { const e = a[ra + x] - b[rb + x]; s += e < 0 ? -e : e; }
+    }
+    return s / ((xb - xa) * (yb - ya));
+  }
+  function median9(v, gw, gh) {
+    const o = new Float32Array(v.length), buf = [];
+    for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+      buf.length = 0;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const jj = Math.min(gh - 1, Math.max(0, j + dj)), ii = Math.min(gw - 1, Math.max(0, i + di));
+        buf.push(v[jj * gw + ii]);
+      }
+      buf.sort((p, q) => p - q);
+      o[j * gw + i] = buf[4];
+    }
+    return o;
+  }
+  // How things moved from photo layer A to photo layer B: motion every G pixels of a small grey copy
+  // (coarse to fine, standing still wins ties), and a mask of the moving things in A and where they land in B.
+  // null when the photos are too different to blend.
+  function flowBetween(LA, LB) {
+    const w = FLOW_W, h = Math.max(G * 2, Math.round((FLOW_W * LA.height) / LA.width));
+    const a = grayOf(LA, w, h), b = grayOf(LB, w, h);
+    let ma = 0, mb = 0;
+    for (let i = 0; i < a.length; i++) { ma += a[i]; mb += b[i]; }
+    const gn = mb > 0 ? ma / mb : 1;
+    for (let i = 0; i < b.length; i++) b[i] *= gn;   // the light may have changed a little
+    const PA = [{ d: a, w, h }], PB = [{ d: b, w, h }];
+    for (let l = 1; l < 3; l++) { PA.push(half(PA[l - 1])); PB.push(half(PB[l - 1])); }
+    const gw = Math.ceil(w / G), gh = Math.ceil(h / G);
+    let fx = new Float32Array(gw * gh), fy = new Float32Array(gw * gh), moved = 0, lost = 0;
+    // Coarse motion, found once for each 4×4 group of points on a quarter-size copy (big moves need the wide look).
+    const coarse = new Map(), coarseAt = (ci, cj) => {
+      const ck = cj * 4096 + ci;
+      let cv = coarse.get(ck);
+      if (cv) return cv;
+      const gx = (ci * 4 + 2) * G, gy = (cj * 4 + 2) * G, X0 = (gx - 12) >> 2, Y0 = (gy - 12) >> 2, X1 = (gx + 15) >> 2, Y1 = (gy + 15) >> 2;
+      let best = Infinity;
+      cv = [0, 0];
+      for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
+        const c = boxCost(PA[2], PB[2], X0, Y0, X1, Y1, dx, dy) + 0.15 * (Math.abs(dx) + Math.abs(dy));
+        if (c < best) { best = c; cv = [dx, dy]; }
+      }
+      coarse.set(ck, cv);
+      return cv;
+    };
+    for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+      const cx = i * G + G / 2, cy = j * G + G / 2, x0 = cx - 4, y0 = cy - 4, x1 = cx + 4, y1 = cy + 4;
+      const c0 = boxCost(PA[0], PB[0], x0, y0, x1, y1, 0, 0);
+      if (c0 < 4) continue;                                     // nothing moved here
+      moved++;
+      // Fine: half size around this group's motion, its neighbours' and standing still; then full size.
+      const guesses = [coarseAt(i >> 2, j >> 2), [0, 0]];
+      if (i >> 2) guesses.push(coarseAt((i >> 2) - 1, j >> 2));
+      if (j >> 2) guesses.push(coarseAt(i >> 2, (j >> 2) - 1));
+      let bx = 0, by = 0, best = Infinity;
+      const Xa = Math.floor(x0 / 2) - 1, Ya = Math.floor(y0 / 2) - 1, Xb = Math.ceil(x1 / 2) + 1, Yb = Math.ceil(y1 / 2) + 1;
+      for (const [ux, uy] of guesses) {
+        for (let dy = uy * 2 - 2; dy <= uy * 2 + 2; dy++) for (let dx = ux * 2 - 2; dx <= ux * 2 + 2; dx++) {
+          const c = boxCost(PA[1], PB[1], Xa, Ya, Xb, Yb, dx, dy);
+          if (c < best) { best = c; bx = dx; by = dy; }
+        }
+      }
+      const gx = bx * 2, gy = by * 2;
+      best = Infinity;
+      for (let dy = gy - 2; dy <= gy + 2; dy++) for (let dx = gx - 2; dx <= gx + 2; dx++) {
+        const c = boxCost(PA[0], PB[0], x0, y0, x1, y1, dx, dy);
+        if (c < best) { best = c; bx = dx; by = dy; }
+      }
+      if (!(best < c0 / 1.15 - 1)) { if (best > 10) lost++; continue; }   // standing still is about as good
+      const cost = (dx, dy) => boxCost(PA[0], PB[0], x0, y0, x1, y1, dx, dy);
+      const sub = (m, p) => { const den = m - 2 * best + p; return den > 1e-6 && isFinite(den) ? clamp((0.5 * (m - p)) / den, -0.5, 0.5) : 0; };
+      fx[j * gw + i] = bx + sub(cost(bx - 1, by), cost(bx + 1, by));
+      fy[j * gw + i] = by + sub(cost(bx, by - 1), cost(bx, by + 1));
+      if (best > c0 * 0.6 && best > 10) lost++;
+    }
+    if (moved > 12 && lost > moved * 0.4 && lost > gw * gh * 0.03) return null;   // too different: just cut
+    // The plain middle of a moving thing looks unchanged, so it got no motion: fill such enclosed gaps
+    // from the motion around them, so the whole thing moves as one piece.
+    const mv = new Uint8Array(gw * gh);
+    for (let q = 0; q < mv.length; q++) mv[q] = fx[q] * fx[q] + fy[q] * fy[q] > 0.25 ? 1 : 0;
+    const known = mv.slice();
+    dropBlobs(mv, gw, gh, 0, Math.max(4, Math.round(gw * gh * 0.06)), true);
+    for (let pass = 0; pass < 12; pass++) {
+      let left = 0;
+      for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+        const q = j * gw + i;
+        if (!mv[q] || known[q]) continue;
+        let sx = 0, sy = 0, c = 0;
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+          const ii = i + di, jj = j + dj;
+          if (ii < 0 || jj < 0 || ii >= gw || jj >= gh) continue;
+          const r = jj * gw + ii;
+          if (known[r]) { sx += fx[r]; sy += fy[r]; c++; }
+        }
+        if (c) { fx[q] = sx / c; fy[q] = sy / c; known[q] = 2; } else left++;
+      }
+      if (!left) break;
+    }
+    fx = median9(fx, gw, gh); fy = median9(fy, gw, gh);
+    // The moving things in A: pixels that changed, have motion, and are found again in B along it.
+    const flowAt = (x, y) => {
+      let gx = (x + 0.5) / G - 0.5, gy = (y + 0.5) / G - 0.5;
+      gx = gx < 0 ? 0 : gx > gw - 1 ? gw - 1 : gx; gy = gy < 0 ? 0 : gy > gh - 1 ? gh - 1 : gy;
+      const i0 = gx | 0, j0 = gy | 0, i1 = Math.min(gw - 1, i0 + 1), j1 = Math.min(gh - 1, j0 + 1), wx = gx - i0, wy = gy - j0;
+      const at = (v) => (v[j0 * gw + i0] * (1 - wx) + v[j0 * gw + i1] * wx) * (1 - wy) + (v[j1 * gw + i0] * (1 - wx) + v[j1 * gw + i1] * wx) * wy;
+      return [at(fx), at(fy)];
+    };
+    const n = w * h, OA = new Uint8Array(n), OB = new Uint8Array(n);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const p = y * w + x, [vx, vy] = flowAt(x, y);
+      if (vx * vx + vy * vy < 0.25) continue;
+      const X = clamp(x + vx, 0, w - 1.001), Y = clamp(y + vy, 0, h - 1.001), xi = X | 0, yi = Y | 0, ax = X - xi, ay = Y - yi, q = yi * w + xi;
+      const bw = (b[q] * (1 - ax) + b[q + 1] * ax) * (1 - ay) + (b[q + w] * (1 - ax) + b[q + w + 1] * ax) * ay;
+      if (Math.abs(a[p] - bw) < 16) OA[p] = 1;
+    }
+    dropBlobs(OA, w, h, 1, 8, false);
+    dropBlobs(OA, w, h, 0, 60, true);
+    // Where those things are in B.
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (!OA[y * w + x]) continue;
+      const [vx, vy] = flowAt(x, y), X = Math.round(x + vx), Y = Math.round(y + vy);
+      if (X >= 0 && Y >= 0 && X < w && Y < h) OB[Y * w + X] = 1;
+    }
+    dropBlobs(OB, w, h, 0, 60, true);
+    // Two pixels wider, for choosing where the background shows, so no rim of a moving thing is left behind.
+    const grow = (M) => { const o = M.slice(); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (M[y * w + x]) { if (x) o[y * w + x - 1] = 1; if (x < w - 1) o[y * w + x + 1] = 1; if (y) o[(y - 1) * w + x] = 1; if (y < h - 1) o[(y + 1) * w + x] = 1; } return o; };
+    return { fx, fy, gw, gh, w, h, OA, OAb: grow(grow(OA)), OBb: grow(grow(OB)) };
+  }
+  // Buffers for in-between pictures, kept between calls.
+  let tb = { n: 0 };
+  function tweenBufs(n) {
+    if (tb.n !== n) tb = { n, base: new Float32Array(n * 4), acc: new Float32Array(n * 4), wsum: new Float32Array(n) };
+    else { tb.acc.fill(0); tb.wsum.fill(0); }
+    return tb;
+  }
+  // The picture a share t of the way from A to B (RGBA). The background comes from whichever photo shows it
+  // there; the moving things slide along their motion and are laid on top. pm: work with see-through pixels.
+  function tweenPixels(A, B, out, W, H, F, t, pm) {
+    const { fx, fy, gw, gh, w, h, OA, OAb, OBb } = F, sx = W / w, sy = H / h, u = 1 - t, N = W * H, W4 = W * 4;
+    const { base, acc, wsum } = tweenBufs(N);
+    // For each output column (or row): the two neighbouring cells of a coarser grid and the weight between them.
+    const look = (len, scale, cells) => {
+      const i0 = new Int32Array(len), i1 = new Int32Array(len), wt = new Float32Array(len), top = cells - 1;
+      for (let k = 0; k < len; k++) {
+        let g = (k + 0.5) / scale - 0.5;
+        g = g < 0 ? 0 : g > top ? top : g;
+        i0[k] = g | 0; i1[k] = Math.min(top, i0[k] + 1); wt[k] = g - i0[k];
+      }
+      return { i0, i1, wt };
+    };
+    const mc = look(W, sx, w), mr = look(H, sy, h), gc = look(W, sx * G, gw), gr = look(H, sy * G, gh);
+    let cR = 0, cG = 0, cB = 0, cA = 0;
+    const put = (X, Y, wt) => {
+      if (wt <= 0 || X < 0 || Y < 0 || X >= W || Y >= H) return;
+      const r = Y * W + X, ri = r * 4;
+      acc[ri] += cR * wt; acc[ri + 1] += cG * wt; acc[ri + 2] += cB * wt; acc[ri + 3] += cA * wt; wsum[r] += wt;
+    };
+    for (let y = 0; y < H; y++) {
+      const m0 = mr.i0[y] * w, m1 = mr.i1[y] * w, my = mr.wt[y], g0 = gr.i0[y] * gw, g1 = gr.i1[y] * gw, gy = gr.wt[y];
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4, c0 = mc.i0[x], c1 = mc.i1[x], cx = mc.wt[x], nx = 1 - cx, ny = 1 - my;
+        const oab = (OAb[m0 + c0] * nx + OAb[m0 + c1] * cx) * ny + (OAb[m1 + c0] * nx + OAb[m1 + c1] * cx) * my;
+        const obb = (OBb[m0 + c0] * nx + OBb[m0 + c1] * cx) * ny + (OBb[m1 + c0] * nx + OBb[m1 + c1] * cx) * my;
+        const oa = (OA[m0 + c0] * nx + OA[m0 + c1] * cx) * ny + (OA[m1 + c0] * nx + OA[m1 + c1] * cx) * my;
+        let a0, a1, a2, a3, b0, b1, b2, b3;
+        if (pm) {
+          const fa = A[i + 3] / 255, fb = B[i + 3] / 255;
+          a0 = A[i] * fa; a1 = A[i + 1] * fa; a2 = A[i + 2] * fa; a3 = A[i + 3];
+          b0 = B[i] * fb; b1 = B[i + 1] * fb; b2 = B[i + 2] * fb; b3 = B[i + 3];
+        } else {
+          a0 = A[i]; a1 = A[i + 1]; a2 = A[i + 2]; a3 = 255; b0 = B[i]; b1 = B[i + 1]; b2 = B[i + 2]; b3 = 255;
+        }
+        // Background: from B where A's moving thing was, from A where B's will be, else a mix of both.
+        const mix = (1 - oab) * (1 - obb), wa = (1 - oab) * obb + mix * u, wb = oab + mix * t;
+        base[i] = a0 * wa + b0 * wb; base[i + 1] = a1 * wa + b1 * wb; base[i + 2] = a2 * wa + b2 * wb; base[i + 3] = a3 * wa + b3 * wb;
+        if (oa < 0.02) continue;
+        // A moving spot: blend how it looks in A and in B, and lay it down a share t along its way.
+        const gx0 = gc.i0[x], gx1 = gc.i1[x], gxw = gc.wt[x], gnx = 1 - gxw, gny = 1 - gy;
+        const vx = ((fx[g0 + gx0] * gnx + fx[g0 + gx1] * gxw) * gny + (fx[g1 + gx0] * gnx + fx[g1 + gx1] * gxw) * gy) * sx;
+        const vy = ((fy[g0 + gx0] * gnx + fy[g0 + gx1] * gxw) * gny + (fy[g1 + gx0] * gnx + fy[g1 + gx1] * gxw) * gy) * sy;
+        let BX = x + vx, BY = y + vy;
+        BX = BX < 0 ? 0 : BX > W - 1.001 ? W - 1.001 : BX; BY = BY < 0 ? 0 : BY > H - 1.001 ? H - 1.001 : BY;
+        const bx0 = BX | 0, by0 = BY | 0, bax = BX - bx0, bay = BY - by0, j = (by0 * W + bx0) * 4;
+        let w00 = (1 - bax) * (1 - bay), w10 = bax * (1 - bay), w01 = (1 - bax) * bay, w11 = bax * bay, s3 = 255;
+        if (pm) { w00 *= B[j + 3] / 255; w10 *= B[j + 7] / 255; w01 *= B[j + W4 + 3] / 255; w11 *= B[j + W4 + 7] / 255; s3 = (w00 + w10 + w01 + w11) * 255; }
+        cR = u * a0 + t * (B[j] * w00 + B[j + 4] * w10 + B[j + W4] * w01 + B[j + W4 + 4] * w11);
+        cG = u * a1 + t * (B[j + 1] * w00 + B[j + 5] * w10 + B[j + W4 + 1] * w01 + B[j + W4 + 5] * w11);
+        cB = u * a2 + t * (B[j + 2] * w00 + B[j + 6] * w10 + B[j + W4 + 2] * w01 + B[j + W4 + 6] * w11);
+        cA = u * a3 + t * s3;
+        const TX = x + t * vx, TY = y + t * vy, tx0 = Math.floor(TX), ty0 = Math.floor(TY), tax = TX - tx0, tay = TY - ty0;
+        put(tx0, ty0, (1 - tax) * (1 - tay) * oa); put(tx0 + 1, ty0, tax * (1 - tay) * oa);
+        put(tx0, ty0 + 1, (1 - tax) * tay * oa); put(tx0 + 1, ty0 + 1, tax * tay * oa);
+      }
+    }
+    for (let q = 0, i = 0; q < N; q++, i += 4) {
+      let r = base[i], g = base[i + 1], bl = base[i + 2], al = base[i + 3];
+      const ws = wsum[q];
+      if (ws > 0) {
+        const k = ws < 1 ? ws : 1, inv = k / ws, rest = 1 - k;
+        r = acc[i] * inv + rest * r; g = acc[i + 1] * inv + rest * g; bl = acc[i + 2] * inv + rest * bl; al = acc[i + 3] * inv + rest * al;
+      }
+      if (pm) { const f = al > 0.5 ? 255 / al : 0; out[i] = r * f; out[i + 1] = g * f; out[i + 2] = bl * f; out[i + 3] = al; }
+      else { out[i] = r; out[i + 1] = g; out[i + 2] = bl; out[i + 3] = 255; }
+    }
+  }
+  // The two photos around an in-between are prepared once and reused for every in-between between them.
+  let pair = { key: '', P: null };
+  function pairKey(lib, k, k2, W, H, kw) {
+    const ed = lib.m.edit, mv = (i) => { const f = lib.frames[i], r = f && lib.recs.get(f.id); return r ? r.maskV || 0 : 0; };
+    return JSON.stringify([lib.m.id, k, k2, W, H, kw, ed.steady, ed.even, ed.frame, ed.fillFrom, ed.scene.bg !== 'none', ed.scene.cut, ed.scene.shadows, lib.v, lib.plateV, mv(k), mv(k2)]);
+  }
+  async function drawTween(x, W, H, lib, k, k2, f, o = {}) {
+    const kw = o.keyRes || 480, key = pairKey(lib, k, k2, W, H, kw);
+    if (pair.key !== key) {
+      const rA = await lib.shotRes(k, kw), rB = await lib.shotRes(k2, kw);
+      if (!rA || !rA.img || !rB || !rB.img) { paintShot(x, W, H, lib, k, rA, o); return; }
+      const O = outMatrix(frameGeom(lib.m), W, H);
+      const A = layersOf(lib, k, rA, O, W, H, false, true), B = layersOf(lib, k2, rB, O, W, H, false, true);
+      const flow = flowBetween(A.L, B.L), read = (c) => c && c.getContext('2d').getImageData(0, 0, W, H).data;
+      pair = { key, P: { A, flow, bg: rA.bg, keyed: A.keyed, fgA: flow && read(A.fg), fgB: flow && read(B.fg), shA: flow && read(A.sh), shB: flow && read(B.sh) } };
+    }
+    const P = pair.P;
+    if (!P.flow) { finishFrame(x, W, H, lib, k, P.A, P.bg, o, k); return; }   // too different to blend: hold the photo
+    const T = scratch('tween', W, H), tx = T.getContext('2d'), img = tx.createImageData(W, H);
+    tweenPixels(P.fgA, P.fgB, img.data, W, H, P.flow, f, P.keyed);
+    tx.putImageData(img, 0, 0);
+    let sh = null;
+    if (P.shA && P.shB) {
+      sh = scratch('tweenSh', W, H);
+      const sx = sh.getContext('2d'), si = sx.createImageData(W, H);
+      tweenPixels(P.shA, P.shB, si.data, W, H, P.flow, f, true);
+      sx.putImageData(si, 0, 0);
+    }
+    finishFrame(x, W, H, lib, k + f, { L: T, fg: T, sh, keyed: P.keyed }, P.bg, o, k);
+  }
+  const SMOOTH = [0, 12, 24];   // off, smooth, extra smooth: roughly how many pictures a second to aim for
+  function tweensPerPhoto(ed, fps) {
+    const target = SMOOTH[ed.smooth || 0], cap = Math.min(7, Math.floor(30 / fps) - 1);
+    return !target || cap < 1 ? 0 : clamp(Math.round(target / fps) - 1, 1, cap);
   }
 
   // ---------- the movie's timeline: title, photos, curtains, credits ----------
@@ -763,9 +1049,13 @@ const Fx = (() => {
       t += d;
     }
     const movieEnd = t, creditsStart = movieEnd + close, creditsDur = n ? Art.creditsDur(ed, music) : 0;
-    return { fps, n, T0, open, close, movieStart: T0 + open, movieEnd, creditsStart, creditsDur, total: creditsStart + creditsDur, shots, firstAt };
+    return {
+      fps, n, T0, open, close, movieStart: T0 + open, movieEnd, creditsStart, creditsDur, total: creditsStart + creditsDur, shots, firstAt,
+      base, smoothN: tweensPerPhoto(ed, fps), cut: frames.map((f) => !!f.cut),
+    };
   }
-  // Every picture of the finished video: one per photo, plus 30 a second while things animate.
+  // Every picture of the finished video: one per photo (plus in-betweens for smooth moves),
+  // and 30 a second while titles and curtains animate.
   function items(tl) {
     const out = [], step = 1 / 30;
     const anim = (kind, t0, dur, extra) => {
@@ -775,7 +1065,15 @@ const Fx = (() => {
     if (tl.T0 > 0) anim('title', 0, tl.T0);
     if (tl.n) {
       if (tl.open > 0) anim('open', tl.T0, tl.open, { k: tl.shots[0].k });
-      for (const s of tl.shots) out.push({ kind: 'shot', t: s.t0, d: s.d, k: s.k });
+      tl.shots.forEach((s, i) => {
+        const nx = tl.shots[i + 1], n = tl.smoothN;
+        // In-betweens take the last moment of a photo, never across a "keep this spot" cut.
+        if (n && nx && nx.k !== s.k && !tl.cut[Math.max(s.k, nx.k)]) {
+          const d = tl.base / (n + 1), still = s.d - n * d;
+          out.push({ kind: 'shot', t: s.t0, d: still, k: s.k });
+          for (let j = 1; j <= n; j++) out.push({ kind: 'tween', t: s.t0 + still + (j - 1) * d, d, k: s.k, k2: nx.k, f: j / (n + 1) });
+        } else out.push({ kind: 'shot', t: s.t0, d: s.d, k: s.k });
+      });
       if (tl.close > 0) anim('close', tl.movieEnd, tl.close, { k: tl.shots[tl.shots.length - 1].k });
     }
     if (tl.creditsDur > 0) anim('credits', tl.creditsStart, tl.creditsDur);
@@ -898,6 +1196,6 @@ const Fx = (() => {
 
   return {
     M, AW, EW, Lib, ID, keyMask, maskCanvas, defaults, ensureEdit, frameGeom, outMatrix, fitSize, SHAPES,
-    drawShot, paintShot, stickersAt, timeline, items, itemAt, Live, applySim, invSim,
+    drawShot, paintShot, drawTween, stickersAt, timeline, items, itemAt, Live, applySim, invSim, flowBetween,
   };
 })();

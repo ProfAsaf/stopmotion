@@ -9,7 +9,7 @@ const Studio = (() => {
     ['words', '💬', 'Words'], ['sound', '🎵', 'Sound'], ['titles', '🎬', 'Titles'], ['speed', '⏱️', 'Speed'],
   ];
   const BRUSH = [0.025, 0.05, 0.09]; // eraser sizes, as a share of the picture width
-  const ST = { lib: null, tab: 'fix', cur: 0, sel: null, mode: null, brush: 1, surprises: null, si: 0, mix: null, mixKey: '', cursor: null, undo: [] };
+  const ST = { lib: null, tab: 'fix', cur: 0, sel: null, mode: null, brush: 1, surprises: null, si: 0, mix: null, mixKey: '', cursor: null };
   const ed = () => S.movie.edit;
   const count = () => S.frames.length;
   const onPhoto = () => ST.cur >= 0 && ST.cur < count();
@@ -42,6 +42,20 @@ const Studio = (() => {
     r.append(el('span', 'label', label), i);
     return r;
   }
+  // Photos per second, from slow motion (turtle) to fast (rabbit).
+  function speed(fps, onPick) {
+    const box = el('div', 'st-speed'), i0 = Math.max(0, FPS_CHOICES.indexOf(fps)), read = el('div', 'st-speed-read');
+    const words = (f) => (f <= 3 ? 'slow motion' : f <= 6 ? 'slow' : f <= 10 ? 'normal' : 'fast');
+    const show = (f) => { read.textContent = `${f} photo${f === 1 ? '' : 's'} a second · ${words(f)}`; };
+    const i = el('input', 'st-range');
+    i.type = 'range'; i.min = '0'; i.max = String(FPS_CHOICES.length - 1); i.step = '1'; i.value = String(i0);
+    i.setAttribute('aria-label', 'Speed');
+    i.oninput = () => show(FPS_CHOICES[Number(i.value)]);
+    i.onchange = () => { const f = FPS_CHOICES[Number(i.value)]; show(f); onPick(f); };
+    box.append(row(el('span', 'emo', '🐢'), i, el('span', 'emo', '🐇')), read);
+    show(FPS_CHOICES[i0]);
+    return box;
+  }
   // A grid of picture buttons: kind is 'bg' | 'fx' | 'look' | 'light' | 'title', or 'emoji' for list items with an icon.
   function tiles(list, value, kind, onPick) {
     const g = el('div', 'tiles');
@@ -63,12 +77,84 @@ const Studio = (() => {
     const run = () => { S.movie.updated = Date.now(); DB.put('movies', S.movie).catch((e) => console.warn('save failed', e)); };
     if (now) run(); else saveTimer = setTimeout(run, 350);
   }
-  function changed({ timeline = false, keys = false } = {}) {
+  function changed({ timeline = false, keys = false, merge = false } = {}) {
+    record(merge);
     S.exportBlob = null;
     if (keys && ST.lib) ST.lib.dropKeys();
     save(); updateLen();
     if (timeline) renderTimeline();
     drawPreview();
+  }
+  // ---------- undo and redo ----------
+  // Everything in the Studio can be undone: settings (snapshots of movie.edit), eraser marks, and photos.
+  const H = { undo: [], redo: [], last: null, busy: false };
+  const snap = () => JSON.stringify({ edit: S.movie.edit, fps: S.movie.fps, name: S.movie.name });
+  function undoButtons() {
+    const u = $('#stUndo'), r = $('#stRedo');
+    if (u) u.classList.toggle('off', !H.undo.length);
+    if (r) r.classList.toggle('off', !H.redo.length);
+  }
+  function pushUndo(entry) {
+    H.undo.push(entry);
+    if (H.undo.length > 80) H.undo.shift();
+    H.redo.length = 0;
+    undoButtons();
+  }
+  // After a settled change: remember the state before it. merge: an automatic follow-up, part of the last step.
+  function record(merge) {
+    if (!S.movie) return;
+    const now = snap();
+    if (H.last == null || now === H.last) { H.last = now; return; }
+    if (!merge) pushUndo({ kind: 'edit', state: H.last });
+    H.last = now;
+  }
+  async function maskShot(id) { const m = await ST.lib.editMask(id); return m.getContext('2d').getImageData(0, 0, m.width, m.height); }
+  async function undo() { await stepHistory(H.undo, H.redo, 'Undone'); }
+  async function redo() { await stepHistory(H.redo, H.undo, 'Done again'); }
+  async function stepHistory(from, to, word) {
+    primeGestures();
+    if (H.busy || !ST.lib) return;
+    if (Play.on) Play.stop();
+    const e = from.pop();
+    if (!e) { toast(from === H.undo ? 'Nothing to undo' : 'Nothing to redo'); return; }
+    H.busy = true;
+    try { to.push(await applyEntry(e)); toast(word); }
+    catch (er) { console.error(er); toast('That could not be undone'); }
+    finally { H.busy = false; undoButtons(); }
+  }
+  // Puts one remembered thing back, and returns how to reverse that.
+  async function applyEntry(e) {
+    if (e.kind === 'edit') { const back = { kind: 'edit', state: snap() }; restore(e.state); return back; }
+    if (e.kind === 'mask') {
+      const i = S.frames.findIndex((f) => f.id === e.id), back = { kind: 'mask', id: e.id, img: await maskShot(e.id) };
+      (await ST.lib.editMask(e.id)).getContext('2d').putImageData(e.img, 0, 0);
+      await ST.lib.saveMask(e.id); await ST.lib.editMask(e.id);
+      ST.lib.dropKeys();
+      if (i >= 0 && i !== ST.cur) await select(i);
+      changed({ timeline: true });
+      return back;
+    }
+    if (e.kind === 'photo-del') {   // a deleted photo comes back
+      const back = { kind: 'photo-add', id: e.rec.id, state: snap() };
+      await putPhotoBack(e);
+      restore(e.state, e.index);
+      return back;
+    }
+    // 'photo-add': a copied photo goes away again
+    const before = snap(), gone = await takePhotoOut(e.id);
+    restore(e.state, Math.min(gone.index, count() - 1));
+    return { kind: 'photo-del', ...gone, state: before };
+  }
+  function restore(json, sel) {
+    const o = JSON.parse(json);
+    S.movie.edit = o.edit; S.movie.fps = o.fps; S.movie.name = o.name;
+    Fx.ensureEdit(S.movie);
+    H.last = snap();
+    ST.lib.m = S.movie; ST.lib.dropKeys(); ST.mixKey = '';
+    if (ST.sel && !ed().stickers.some((q) => q.id === ST.sel)) ST.sel = null;
+    if (sel != null) ST.cur = clamp(sel, -1, count());
+    $('#stName').textContent = S.movie.name;
+    S.exportBlob = null; save(); updateLen(); renderTimeline(); renderPanel(); drawPreview();
   }
   const musicCredit = () => Sonic.credit(ed().music.track);
   const timelineNow = () => Fx.timeline(S.movie, S.frames, musicCredit());
@@ -193,12 +279,18 @@ const Studio = (() => {
         x.beginPath(); x.arc(ST.cursor[0], ST.cursor[1], r, 0, Math.PI * 2); x.stroke(); x.setLineDash([]);
       }
     }
-    if (ST.tab === 'words' && ST.sel) {
-      const s = e.stickers.find((q) => q.id === ST.sel);
-      if (s && Fx.stickersAt(ST.lib, ST.cur).includes(s)) {
-        const [x0, y0, x1, y1] = Art.stickerRect(x, W, H, s);
-        x.strokeStyle = '#ffd23f'; x.lineWidth = Math.max(2, W / 400); x.setLineDash([8, 6]);
-        x.strokeRect(x0, y0, x1 - x0, y1 - y0); x.setLineDash([]);
+    const sel = selectedHere();
+    if (sel && ST.tab === 'words') {
+      const [x0, y0, x1, y1] = Art.stickerRect(x, W, H, sel), hs = handlesOf(sel);
+      x.strokeStyle = '#ffd23f'; x.lineWidth = Math.max(2, W / 400); x.setLineDash([8, 6]);
+      x.strokeRect(x0, y0, x1 - x0, y1 - y0); x.setLineDash([]);
+      for (const [k, glyph, col] of [['del', '✕', '#ff4d5e'], ['size', '⤡', '#ffd23f'], ['edit', '✎', '#5cc8ff']]) {
+        const h = hs[k];
+        if (!h) continue;
+        x.fillStyle = col; x.beginPath(); x.arc(h[0], h[1], hs.r, 0, Math.PI * 2); x.fill();
+        x.lineWidth = Math.max(2, hs.r * 0.16); x.strokeStyle = '#fff'; x.stroke();
+        x.fillStyle = k === 'size' ? '#3a2200' : '#fff'; x.font = `900 ${Math.round(hs.r * 1.15)}px ${Art.FONT.round}`;
+        x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(glyph, h[0], h[1] + hs.r * 0.06);
       }
     }
     if (ST.tab === 'look' && e.light === 'spot') {
@@ -207,6 +299,27 @@ const Studio = (() => {
   }
 
   // ---------- touching the picture ----------
+  // The chosen sticker, if it shows on this photo, and the round buttons around it (delete, resize, change words).
+  function selectedHere() {
+    if (!ST.sel || !onPhoto() || !ST.lib) return null;
+    const s = ed().stickers.find((q) => q.id === ST.sel);
+    return s && Fx.stickersAt(ST.lib, ST.cur).includes(s) ? s : null;
+  }
+  function handlesOf(s) {
+    const c = $('#stCanvas'), W = c.width, H = c.height, r = 17 * (W / Math.max(1, c.getBoundingClientRect().width));
+    const [x0, y0, x1, y1] = Art.stickerRect(c.getContext('2d'), W, H, s);
+    const at = (x, y) => [clamp(x, r + 2, W - r - 2), clamp(y, r + 2, H - r - 2)];
+    return { r, del: at(x1, y0), size: at(x1, y1), edit: s.kind === 'emoji' ? null : at(x0, y0) };
+  }
+  const near = (p, h, r) => !!h && Math.hypot(p[0] - h[0], p[1] - h[1]) <= r * 1.35;
+  function deleteSticker(s) {
+    const e = ed();
+    e.stickers = e.stickers.filter((q) => q !== s);
+    ST.sel = null;
+    changed({ timeline: true }); renderPanel();
+    toast('Deleted. Tap Undo to bring it back');
+  }
+  function editSticker(s) { const t = ask('New words', s.text); if (t) { s.text = t; changed(); } }
   function toCanvas(ev) {
     const c = $('#stCanvas'), r = c.getBoundingClientRect();
     return [((ev.clientX - r.left) * c.width) / Math.max(1, r.width), ((ev.clientY - r.top) * c.height) / Math.max(1, r.height)];
@@ -227,15 +340,28 @@ const Studio = (() => {
       return;
     }
     if (ST.mode === 'erase') { beginStroke(p); drag = { kind: 'erase' }; return; }
-    if (ST.tab === 'words') {
+    const spot = ST.tab === 'look' && e.light === 'spot';
+    if (!ST.mode && !spot) {
+      // The round buttons around the chosen sticker come first.
+      const s0 = ST.tab === 'words' ? selectedHere() : null;
+      if (s0) {
+        const hs = handlesOf(s0);
+        if (near(p, hs.del, hs.r)) { deleteSticker(s0); return; }
+        if (near(p, hs.edit, hs.r)) { editSticker(s0); return; }
+        if (near(p, hs.size, hs.r)) { drag = { kind: 'resize', s: s0, d0: Math.hypot(p[0] - s0.x * W, p[1] - s0.y * H) || 1, z0: s0.size }; return; }
+      }
+      // Any sticker on the picture can be picked up, from any tab: it opens Words.
       const x = c.getContext('2d'), list = Fx.stickersAt(ST.lib, ST.cur).slice().reverse();
-      const hit = list.find((s) => { const [x0, y0, x1, y1] = Art.stickerRect(x, W, H, s); return p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1; });
-      ST.sel = hit ? hit.id : null;
-      if (hit) drag = { kind: 'sticker', s: hit, x: p[0], y: p[1], sx: hit.x, sy: hit.y };
-      renderPanel(); drawOverlay();
-      return;
+      const hit = list.find((q) => { const [x0, y0, x1, y1] = Art.stickerRect(x, W, H, q); return p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1; });
+      if (hit) {
+        ST.sel = hit.id;
+        if (ST.tab !== 'words') setTab('words'); else { renderPanel(); drawOverlay(); }
+        drag = { kind: 'sticker', s: hit, x: p[0], y: p[1], sx: hit.x, sy: hit.y };
+        return;
+      }
+      if (ST.tab === 'words' && ST.sel) { ST.sel = null; renderPanel(); drawOverlay(); }
     }
-    if (ST.tab === 'look' && e.light === 'spot') { drag = { kind: 'spot' }; e.spot.x = p[0] / W; e.spot.y = p[1] / H; drawPreview(); }
+    if (spot) { drag = { kind: 'spot' }; e.spot.x = p[0] / W; e.spot.y = p[1] / H; drawPreview(); }
   }
   function onMove(ev) {
     if (!ptrs.has(ev.pointerId)) {
@@ -256,6 +382,7 @@ const Studio = (() => {
       drawOverlay();
     } else if (drag.kind === 'erase') strokeTo(p);
     else if (drag.kind === 'sticker') { drag.s.x = clamp(drag.sx + (p[0] - drag.x) / W, 0.02, 0.98); drag.s.y = clamp(drag.sy + (p[1] - drag.y) / H, 0.02, 0.98); drawPreview(); }
+    else if (drag.kind === 'resize') { drag.s.size = clamp((drag.z0 * Math.hypot(p[0] - drag.s.x * W, p[1] - drag.s.y * H)) / drag.d0, 0.08, 0.8); drawPreview(); }
     else if (drag.kind === 'spot') { e.spot.x = clamp(p[0] / W, 0, 1); e.spot.y = clamp(p[1] / H, 0, 1); drawPreview(); }
   }
   function onUp(ev) {
@@ -265,7 +392,7 @@ const Studio = (() => {
     drag = null;
     if (d.kind === 'erase') endStroke();
     else if (d.kind === 'frame' || d.kind === 'pinch') frameDone();
-    else if (d.kind === 'sticker' || d.kind === 'spot') changed();
+    else if (d.kind === 'sticker' || d.kind === 'spot' || d.kind === 'resize') { changed(); if (d.kind === 'resize') renderPanel(); }
   }
   // Keep the stored frame inside the photo, then save.
   function frameDone() {
@@ -288,8 +415,7 @@ const Studio = (() => {
   function beginStroke(p) {
     const f = S.frames[ST.cur], mask = ST.lib.masks.get(f.id);
     if (!mask) { prepMask().then(() => drawOverlay()); return; }
-    ST.undo.push({ id: f.id, img: mask.getContext('2d').getImageData(0, 0, mask.width, mask.height) });
-    if (ST.undo.length > 12) ST.undo.shift();
+    pushUndo({ kind: 'mask', id: f.id, img: mask.getContext('2d').getImageData(0, 0, mask.width, mask.height) });
     stroke = { id: f.id, mask, last: p };
     brushDot(mask, p); ST.cursor = p;
     drawPreview();
@@ -311,23 +437,18 @@ const Studio = (() => {
     changed({ timeline: true });
     ensureAnalysis();
   }
-  async function undoStroke() {
-    const u = ST.undo.pop();
-    if (!u) { toast('Nothing to undo'); return; }
-    const mask = await ST.lib.editMask(u.id);
-    mask.getContext('2d').putImageData(u.img, 0, 0);
-    await ST.lib.saveMask(u.id); await ST.lib.editMask(u.id);
-    ST.lib.dropKeys(); changed({ timeline: true });
-  }
   async function clearMask() {
     if (!onPhoto()) return;
-    await ST.lib.clearMask(S.frames[ST.cur].id); await prepMask();
+    const id = S.frames[ST.cur].id;
+    pushUndo({ kind: 'mask', id, img: await maskShot(id) });
+    await ST.lib.clearMask(id); await prepMask();
     ST.lib.dropKeys(); changed({ timeline: true });
   }
   async function copyToNext() {
     if (ST.cur >= count() - 1) { toast('This is the last photo'); return; }
     const a = S.frames[ST.cur].id, b = S.frames[ST.cur + 1].id;
     if (!ST.lib.hasMask(a)) { toast('Rub something out first'); return; }
+    pushUndo({ kind: 'mask', id: b, img: await maskShot(b) });
     await ST.lib.copyMask(a, b);
     await select(ST.cur + 1);
     ST.lib.dropKeys(); changed({ timeline: true });
@@ -350,7 +471,7 @@ const Studio = (() => {
   async function nextSurprise(erase) {
     const s = ST.surprises && ST.surprises[ST.si];
     if (!s) return;
-    if (erase) { await ST.lib.addToMask(s.id, s.mask); ST.lib.dropKeys(); changed({ timeline: true }); }
+    if (erase) { pushUndo({ kind: 'mask', id: s.id, img: await maskShot(s.id) }); await ST.lib.addToMask(s.id, s.mask); ST.lib.dropKeys(); changed({ timeline: true }); }
     ST.si++;
     if (ST.si >= ST.surprises.length) { ST.mode = null; ST.surprises = null; toast(erase ? 'All cleaned up!' : 'Done'); renderPanel(); drawPreview(); return; }
     await select(ST.surprises[ST.si].k);
@@ -412,7 +533,8 @@ const Studio = (() => {
         tools.push(
           labeled('Brush', segEl([[0, 'Small'], [1, 'Medium'], [2, 'Big']], ST.brush, (v) => { ST.brush = v; })),
           labeled('Fill with', segEl([['first', plate ? 'Empty set' : 'First photo'], ['before', 'Photo before']], e.fillFrom, (v) => { e.fillFrom = v; ST.lib.dropKeys(); changed(); })),
-          row(btn('↩ Undo', undoStroke, 'pill small'), btn('Clear this photo', clearMask, 'pill small'), btn('Same on next photo →', copyToNext, 'pill small')));
+          row(btn('Clear this photo', clearMask, 'pill small'), btn('Same on next photo →', copyToNext, 'pill small')),
+          hint('Rubbed the wrong spot? Tap Undo at the top.'));
       }
       if (ST.mode === 'surprise' && ST.surprises) {
         const s = ST.surprises[ST.si];
@@ -477,10 +599,13 @@ const Studio = (() => {
         if (s.kind === 'talk' || s.kind === 'think') kids.push(row(btn('↔ Flip the tail', () => { s.tail = s.tail === 'right' ? 'left' : 'right'; changed(); }, 'pill small')));
         kids.push(slider('Size', 0.1, 0.7, 0.01, s.size, (v) => { s.size = v; drawPreview(); }, (v) => { s.size = v; changed(); }));
         kids.push(labeled('Shows for', segEl([[1, '1'], [3, '3'], [6, '6'], [12, '12'], [0, 'All']], s.len, (v) => { s.len = v; changed(); })));
-        kids.push(row(btn('🗑 Delete', () => { e.stickers = e.stickers.filter((q) => q !== s); ST.sel = null; changed({ timeline: true }); renderPanel(); }, 'pill danger small')));
+        kids.push(row(btn('🗑 Delete', () => deleteSticker(s), 'pill danger small')));
         out.push(sec('This sticker', kids));
+      } else {
+        const here = Fx.stickersAt(ST.lib, ST.cur);
+        if (here.length) out.push(sec('On this photo', row(here.map((q) => btn(q.kind === 'emoji' ? q.text : `${q.kind === 'word' ? '💥' : q.kind === 'caption' ? '📝' : '💬'} ${(q.text || '').slice(0, 14)}`, () => { ST.sel = q.id; renderPanel(); drawOverlay(); }, 'pill small')))));
       }
-      out.push(hint('Words and stickers start on this photo and last for a few photos. Drag them on the picture to move them.'));
+      out.push(hint('Tap a sticker on the picture to change it: drag it to move it, the yellow corner to make it bigger or smaller, ✕ to delete it, ✎ to change the words.'));
       return out;
     },
     sound() {
@@ -538,8 +663,13 @@ const Studio = (() => {
     },
     speed() {
       const e = ed(), out = [];
-      out.push(sec('Speed', segEl(FPS_CHOICES.map((f) => [f, String(f)]), S.movie.fps, (f) => { S.movie.fps = f; changed({ timeline: true }); renderPanel(); }),
-        hint('Photos per second. Fewer is slower and more jumpy, more is smoother.')));
+      out.push(sec('Speed', speed(S.movie.fps, (f) => { S.movie.fps = f; changed({ timeline: true }); renderPanel(); }),
+        hint('Photos per second. Slide to the turtle for slow motion.')));
+      out.push(sec('Smooth moves', segEl([[0, 'Off'], [1, 'Smooth'], [2, 'Extra smooth']], e.smooth || 0, async (v) => {
+        e.smooth = v; changed({ timeline: true }); renderPanel();
+        if (v && !e.steady) { e.steady = true; changed({ keys: true, merge: true }); toast('Steady camera is on too, so only the toys move'); await ensureAnalysis(); }
+      }),
+      hint('The app draws in-between pictures, so moves glide instead of jumping. Tap Play to see it.')));
       if (onPhoto()) {
         const f = S.frames[ST.cur], hold = e.holds[f.id] || 1;
         out.push(sec(`Photo ${ST.cur + 1}`,
@@ -559,21 +689,44 @@ const Studio = (() => {
 
   // ---------- photos: copy and delete from here ----------
   async function copyPhoto() {
-    const i = ST.cur;
+    const i = ST.cur, before = snap();
     await duplicateFrameAt(i);
     afterFramesChanged(i + 1);
+    pushUndo({ kind: 'photo-add', id: S.frames[i + 1].id, state: before });
     toast('Copied! That moment now lasts longer');
   }
   async function deletePhoto() {
     const i = ST.cur, f = S.frames[i];
-    if (!f || !confirm('Delete this photo?')) return;
-    const e = ed();
+    if (!f) return;
+    if (count() < 2) { toast('A movie needs at least one photo'); return; }
+    const before = snap(), e = ed();
     e.stickers = e.stickers.filter((s) => s.at !== f.id); e.sounds = e.sounds.filter((s) => s.at !== f.id);
     e.voices.forEach((v) => { if (v.at === f.id) v.at = S.frames[i + 1] ? S.frames[i + 1].id : '#start'; });
     delete e.holds[f.id];
-    await deleteFrameAt(i);
-    if (!S.frames.length) { close(); openMovie(S.movie.id); return; }
-    afterFramesChanged(Math.min(i, S.frames.length - 1));
+    H.last = snap();   // the photo entry below covers these changes too
+    const gone = await takePhotoOut(f.id);
+    pushUndo({ kind: 'photo-del', ...gone, state: before });
+    toast('Photo deleted. Tap Undo to bring it back');
+  }
+  // Takes a photo out of the movie, keeping everything needed to put it back.
+  async function takePhotoOut(id) {
+    const index = S.frames.findIndex((f) => f.id === id);
+    const rec = await DB.get('frames', id), aux = await DB.get('aux', `${S.movie.id}/fx/${id}`);
+    await deleteFrameAt(index);
+    ST.lib.recs.delete(id); ST.lib.masks.delete(id);
+    afterFramesChanged(Math.min(index, count() - 1));
+    return { rec, aux, index };
+  }
+  async function putPhotoBack({ rec, aux, index }) {
+    const ids = [...S.movie.frames];
+    ids.splice(index, 0, rec.id);
+    S.movie = { ...S.movie, frames: ids, updated: Date.now() };
+    await DB.saveFrame(rec, S.movie);
+    if (aux) { await DB.put('aux', aux); ST.lib.recs.set(rec.id, aux); }
+    ST.lib.masks.delete(rec.id);
+    S.frames.splice(index, 0, toRuntime(rec));
+    renderStrip(); refreshLast();   // the camera screen's strip too
+    afterFramesChanged(index);
   }
   function afterFramesChanged(sel) {
     S.movie.edit = ed(); ST.lib.m = S.movie; ST.lib.setFrames(S.frames);
@@ -629,6 +782,11 @@ const Studio = (() => {
   }
 
   // ---------- playing the movie ----------
+  // Pictures that come from photos: a photo itself (also under the curtains), or an in-between of two photos.
+  const picKey = (it) => (it.kind === 'tween' ? `${it.k}>${it.k2}@${it.f.toFixed(3)}` : it.k != null ? `p${it.k}` : null);
+  function drawPic(x, W, H, it, keyRes) {
+    return it.kind === 'tween' ? Fx.drawTween(x, W, H, ST.lib, it.k, it.k2, it.f, { keyRes }) : Fx.drawShot(x, W, H, ST.lib, it.k, { keyRes });
+  }
   const Play = {
     on: false, list: [], tl: null, t0: 0, stallAt: 0, lastI: -1, cache: new Map(), spare: [], pending: null, buf: null, src: null, raf: 0, timer: 0, W: 0, H: 0, onEnd: null, muted: false,
     async start(from = 0, opts = {}) {
@@ -640,13 +798,14 @@ const Studio = (() => {
       setPlayBtn(true); drawOverlay();
       if (usesLineUp()) await ensureAnalysis();
       if (this.token !== token) return;
-      const [W, H] = sizeCanvases(outAspect(false));
-      this.W = W; this.H = H;
+      // Pictures are drawn smaller while playing (more so with smooth moves), so they keep up with the clock.
+      const [cw, ch] = sizeCanvases(outAspect(false)), sc = Math.min(1, (ed().smooth ? 640 : 960) / cw);
+      this.W = Math.round(cw * sc); this.H = Math.round(ch * sc);
       this.cache.clear();
-      // Get the first few photos ready, and the sound, before the clock starts.
+      // Get the first few pictures ready, and the sound, before the clock starts.
       const i0 = Fx.itemAt(list, from), first = [];
-      for (let j = i0; j < list.length && first.length < 4; j++) if (list[j].k != null && !first.includes(list[j].k)) first.push(list[j].k);
-      for (const k of first) { await this.render(k); if (this.token !== token) return; }
+      for (let j = i0; j < list.length && first.length < 4; j++) { const key = picKey(list[j]); if (key && !first.some((q) => picKey(q) === key)) first.push(list[j]); }
+      for (const it of first) { await this.render(it); if (this.token !== token) return; }
       if (!this.muted) {
         try { this.buf = await mixBuffer(); } catch (e) { console.warn(e); toast('The sound could not be made'); }
         if (this.token !== token) return;
@@ -677,8 +836,11 @@ const Studio = (() => {
       const now = performance.now(), t = (now - this.t0) / 1000;
       if (t >= this.tl.total) { this.finish(); return; }
       const i = Fx.itemAt(this.list, t), it = this.list[i];
-      if (it.k != null && !this.cache.has(it.k)) {
-        if (!this.stallAt) { this.stallAt = now; this.stopAudio(); }   // not drawn yet: wait for it
+      const key = picKey(it);
+      if (key && !this.cache.has(key)) {
+        // A late in-between is skipped (the last picture stays up); a photo is worth waiting for.
+        if (it.kind === 'tween') { this.pump(i); this.next(); return; }
+        if (!this.stallAt) { this.stallAt = now; this.stopAudio(); }
         this.pump(i); this.next(); return;
       }
       if (this.stallAt) { this.t0 += now - this.stallAt; this.stallAt = 0; this.startAudio((now - this.t0) / 1000); }
@@ -692,29 +854,35 @@ const Studio = (() => {
       if (it.kind === 'title') Art.drawTitle(x, W, H, titleOf(), it.u);
       else if (it.kind === 'credits') Art.drawCredits(x, W, H, ed(), it.u, musicCredit());
       else {
-        x.drawImage(this.cache.get(it.k), 0, 0, W, H);
+        x.drawImage(this.cache.get(picKey(it)), 0, 0, W, H);
         if (it.kind === 'open') Art.drawCurtains(x, W, H, it.u / this.tl.open);
         else if (it.kind === 'close') Art.drawCurtains(x, W, H, 1 - it.u / this.tl.close);
       }
     },
-    // Draws upcoming photos ahead of time, one at a time, and lets go of old ones.
+    // Draws upcoming pictures ahead of time, one at a time, and lets go of old ones.
     pump(i) {
-      const want = [];
-      for (let j = i; j < this.list.length && want.length < 8; j++) { const k = this.list[j].k; if (k != null && !want.includes(k)) want.push(k); }
-      for (const [k, c] of this.cache) if (!want.includes(k) && this.cache.size > 10) { this.cache.delete(k); this.spare.push(c); }
+      const want = [], next = [], ahead = ed().smooth ? 16 : 8;   // in-betweens come thick and fast: get further ahead
+      for (let j = i; j < this.list.length && want.length < ahead; j++) {
+        const key = picKey(this.list[j]);
+        if (key && !want.includes(key)) { want.push(key); next.push(this.list[j]); }
+      }
+      for (const [key, c] of this.cache) if (!want.includes(key) && this.cache.size > ahead + 2) { this.cache.delete(key); this.spare.push(c); }
       if (this.pending) return;
-      const k = want.find((q) => !this.cache.has(q));
-      if (k != null) this.render(k);
+      // Next to draw: the soonest picture not drawn yet, leaving out in-betweens that are already due.
+      const due = (performance.now() - this.t0) / 1000 + 0.03;
+      const it = next.find((q) => !this.cache.has(picKey(q)) && !(this.stallAt === 0 && q.kind === 'tween' && q.t < due));
+      if (it) this.render(it);
     },
-    render(k) {
-      if (this.cache.has(k)) return Promise.resolve();
-      if (this.pending) return this.pending.then(() => this.render(k));
+    render(it) {
+      const key = picKey(it);
+      if (this.cache.has(key)) return Promise.resolve();
+      if (this.pending) return this.pending.then(() => this.render(it));
       const token = this.token;
       this.pending = (async () => {
         const c = this.spare.pop() || document.createElement('canvas');
         if (c.width !== this.W || c.height !== this.H) { c.width = this.W; c.height = this.H; }
-        await Fx.drawShot(c.getContext('2d'), this.W, this.H, ST.lib, k, { keyRes: 320 });
-        if (this.token === token && this.on) this.cache.set(k, c); else this.spare.push(c);
+        await drawPic(c.getContext('2d'), this.W, this.H, it, 320);
+        if (this.token === token && this.on) this.cache.set(key, c); else this.spare.push(c);
       })().catch((e) => console.error(e)).finally(() => { this.pending = null; });
       return this.pending;
     },
@@ -777,13 +945,20 @@ const Studio = (() => {
     changed({ timeline: true }); renderPanel();
     toast('Got it! Tap Play to hear your movie');
   }
-  async function deleteVoice(v) {
-    if (!confirm('Delete this recording?')) return;
+  function deleteVoice(v) {
     const e = ed();
     e.voices = e.voices.filter((q) => q !== v);
-    Sonic.forgetVoice(v.id);
-    await DB.run('aux', 'readwrite', (tx) => { tx.objectStore('aux').delete(`${S.movie.id}/voice/${v.id}`); });
     changed({ timeline: true }); renderPanel();
+    toast('Recording deleted. Tap Undo to bring it back');
+  }
+  // Recordings no longer in the movie are thrown away when the Studio closes (until then Undo can bring them back).
+  async function dropUnusedVoices(m) {
+    try {
+      const keep = new Set(m.edit.voices.map((v) => `${m.id}/voice/${v.id}`));
+      const keys = await DB.run('aux', 'readonly', (tx) => { const r = tx.objectStore('aux').getAllKeys(IDBKeyRange.bound(`${m.id}/voice/`, `${m.id}/voice/\uffff`)); return () => r.result; });
+      const gone = keys.filter((k) => !keep.has(k));
+      if (gone.length) await DB.run('aux', 'readwrite', (tx) => { const st = tx.objectStore('aux'); gone.forEach((k) => st.delete(k)); });
+    } catch (e) { /* tidying up can wait */ }
   }
 
   // ---------- empty set + own picture ----------
@@ -853,6 +1028,7 @@ const Studio = (() => {
     Art.reset(x);
     if (it.kind === 'title') Art.drawTitle(x, W, H, titleOf(), it.u);
     else if (it.kind === 'credits') Art.drawCredits(x, W, H, ed(), it.u, musicCredit());
+    else if (it.kind === 'tween') await Fx.drawTween(x, W, H, ST.lib, it.k, it.k2, it.f, { keyRes: 640 });
     else {
       if (comp.k !== it.k) { await Fx.drawShot(comp.c.getContext('2d'), W, H, ST.lib, it.k, { keyRes: 640 }); comp.k = it.k; }
       Art.reset(x); x.drawImage(comp.c, 0, 0);
@@ -917,12 +1093,13 @@ const Studio = (() => {
     canvas.width = comp.c.width = W; canvas.height = comp.c.height = H;
     const x = canvas.getContext('2d');
     // Draw every photo first, so the real-time pass only has to copy pictures.
-    const shots = new Map(), ks = [...new Set(list.filter((it) => it.k != null).map((it) => it.k))];
-    for (let j = 0; j < ks.length; j++) {
+    const shots = new Map(), pics = [];
+    list.forEach((it) => { const key = picKey(it); if (key && !pics.some((q) => picKey(q) === key)) pics.push(it); });
+    for (let j = 0; j < pics.length; j++) {
       const c = document.createElement('canvas'); c.width = W; c.height = H;
-      await Fx.drawShot(c.getContext('2d'), W, H, ST.lib, ks[j], { keyRes: 640 });
-      shots.set(ks[j], await createImageBitmap(c).catch(() => c));
-      onP((0.5 * (j + 1)) / ks.length);
+      await drawPic(c.getContext('2d'), W, H, pics[j], 640);
+      shots.set(picKey(pics[j]), await createImageBitmap(c).catch(() => c));
+      onP((0.5 * (j + 1)) / pics.length);
     }
     const tracks = [...canvas.captureStream(30).getVideoTracks()];
     let src = null;
@@ -943,7 +1120,7 @@ const Studio = (() => {
       Art.reset(x);
       if (it.kind === 'title') Art.drawTitle(x, W, H, titleOf(), it.u);
       else if (it.kind === 'credits') Art.drawCredits(x, W, H, ed(), it.u, musicCredit());
-      else { x.drawImage(shots.get(it.k), 0, 0, W, H); if (it.kind === 'open') Art.drawCurtains(x, W, H, it.u / tl.open); else if (it.kind === 'close') Art.drawCurtains(x, W, H, 1 - it.u / tl.close); }
+      else { x.drawImage(shots.get(picKey(it)), 0, 0, W, H); if (it.kind === 'open') Art.drawCurtains(x, W, H, it.u / tl.open); else if (it.kind === 'close') Art.drawCurtains(x, W, H, 1 - it.u / tl.close); }
     };
     paint(list[0]);
     rec.start(500);
@@ -981,7 +1158,9 @@ const Studio = (() => {
     Fx.ensureEdit(S.movie);
     show('studio');
     ST.lib = new Fx.Lib(S.movie, S.frames);
-    Object.assign(ST, { cur: count() ? 0 : -1, sel: null, mode: null, surprises: null, mix: null, mixKey: '', cursor: null, undo: [] });
+    Object.assign(ST, { cur: count() ? 0 : -1, sel: null, mode: null, surprises: null, mix: null, mixKey: '', cursor: null });
+    Object.assign(H, { undo: [], redo: [], last: snap(), busy: false });
+    undoButtons();
     $('#stName').textContent = S.movie.name;
     $('#exportBox').hidden = true; $('#recBar').hidden = true;
     setPlayBtn(false); renderTabs(); renderTimeline(); renderPanel(); updateLen();
@@ -994,6 +1173,8 @@ const Studio = (() => {
     Play.stop(); Sonic.stopPreview();
     if (REC) { REC.stopped = true; if (REC.mic) REC.mic.close(); REC = null; }
     save(true);
+    if (S.movie) dropUnusedVoices(S.movie);
+    H.undo = []; H.redo = [];
     ST.lib = null; ST.mode = null; ST.surprises = null; ST.mix = null; ST.mixKey = '';
     $('#exportBox').hidden = true; $('#recBar').hidden = true;
   }
@@ -1010,6 +1191,8 @@ const Studio = (() => {
     $('#stName').onclick = rename;
     $('#stPlay').onclick = togglePlay;
     $('#stMake').onclick = makeVideo;
+    $('#stUndo').onclick = undo;
+    $('#stRedo').onclick = redo;
     $('#saveVideo').onclick = saveVideo;
     $('#exportClose').onclick = () => { $('#exportBox').hidden = true; };
     $('#recStop').onclick = finishRec;
@@ -1023,7 +1206,11 @@ const Studio = (() => {
     window.addEventListener('resize', () => { if (S.screen === 'studio' && !Play.on) drawPreview(); });
   }
   function onKey(e) {
-    if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+    else if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); }
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedHere()) { e.preventDefault(); deleteSticker(selectedHere()); }
+    else if (e.key === ' ') { e.preventDefault(); togglePlay(); }
     else if (e.key === 'Escape') { if (Play.stop()) drawPreview(); $('#exportBox').hidden = true; }
     else if (e.key === 'ArrowRight') select(ST.cur + 1);
     else if (e.key === 'ArrowLeft') select(ST.cur - 1);
@@ -1031,8 +1218,8 @@ const Studio = (() => {
   function onHidden() { if (Play.stop()) drawPreview(); if (REC) finishRec(); }
 
   return {
-    open, close, wire, onKey, onHidden, Play, select, setTab, mixBuffer, exportMovie,
-    ui: { el, btn, sec, row, hint, box, toggle, segEl, labeled, slider, tiles },
+    open, close, wire, onKey, onHidden, Play, select, setTab, mixBuffer, exportMovie, undo, redo,
+    ui: { el, btn, sec, row, hint, box, toggle, segEl, labeled, slider, tiles, speed },
     get state() { return ST; },
   };
 })();
