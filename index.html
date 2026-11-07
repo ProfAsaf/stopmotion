@@ -464,7 +464,7 @@ const PHOTO_Q = 0.84;    // JPEG quality: a third smaller than 0.9 and looks the
 const SMALL_W = 160;     // width of the tiny copies used to watch the camera
 const FPS_CHOICES = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15];   // photos per second, slow motion to fast
 const TICK_MS = 120;     // how often the camera is checked
-const VERSION = 5;       // shown on the home screen, so you can tell an update arrived
+const VERSION = 6;       // shown on the home screen, so you can tell an update arrived
 
 const ICONS = {
   home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/>',
@@ -1761,7 +1761,7 @@ function renderScenePanel() {
   if (s.bg !== 'none') {
     if (plate) {
       bg.push(U.slider('Cut-out', 0, 1, 0.01, s.cut, (v) => { s.cut = v; }, (v) => { s.cut = v; saveMovieSoon(); Fx.Live.ghostSrc = ''; liveGhost(); }),
-        U.hint('Slide right if parts of your toys disappear, left if bits of the room show.'),
+        U.hint('Slide right if parts of your toys disappear, left if shadows or bits of the room show.'),
         U.row(U.btn('📷 New empty photo', takeEmpty, 'pill small')));
     } else bg.push(U.box('First take a photo of your set with no toys in it.', U.btn('📷 Take empty photo', takeEmpty, 'pill primary')));
     if (s.bg === 'photo') bg.push(U.row(U.btn('🖼️ Choose a picture', chooseScenePicture, 'pill small')));
@@ -1781,24 +1781,45 @@ function chooseScenePicture() {
 }
 function showPlateMsg() { $('#tipsMsg').hidden = true; $('#plateMsg').hidden = false; Fx.Live.hold = true; }
 function hidePlateMsg() { $('#plateMsg').hidden = true; Fx.Live.hold = false; }
-// The empty-set photo: the set without toys, used to cut toys out for magic backgrounds.
+// The empty-set photo: the set without toys, used to cut toys out for magic backgrounds. It waits
+// for the iPad to settle after the tap (and the camera's focus and exposure to catch up), then
+// averages a few camera frames: a steady, less grainy empty set gives clean cut-outs.
+let plateBusy = false;
 async function capturePlate() {
-  const src = frameSource(), [vw, vh] = sourceSize(src), m = S.movie;
-  if (!vw || !m) { toast('The camera is not ready yet'); return; }
-  let W = m.w, H = m.h;
-  if (!W) { const k = Math.min(1, MAX_SIDE / Math.max(vw, vh)); W = Math.round((vw * k) / 2) * 2; H = Math.round((vh * k) / 2) * 2; }
-  else if (Math.abs(vw / vh - W / H) > 0.03) { $('#rotateMsg').hidden = false; return; }
-  const c = S.capCanvas;
-  c.width = W; c.height = H;
-  c.getContext('2d').drawImage(src, 0, 0, W, H);
-  flash(); Sound.shutter();
-  const sh = Math.round((SMALL_W * H) / W), small = Vision.grab(c, SMALL_W, sh), full = await toBlob(c, 'image/jpeg', PHOTO_Q);
-  await DB.put('aux', { id: `${m.id}/plate`, full, small, sw: SMALL_W, sh, w: W, h: H, made: false, t: Date.now() });
-  if (!m.w) { S.movie = { ...m, w: W, h: H, updated: Date.now() }; await DB.put('movies', S.movie); }
-  S.exportBlob = null;
-  hidePlateMsg();
-  await Fx.Live.reload(); liveGhost(); applySceneBadge();
-  toast('Got it! Now put your toys back');
+  if (plateBusy) return;
+  if (!sourceSize(frameSource())[0] || !S.movie) { toast('The camera is not ready yet'); return; }
+  plateBusy = true; $('#plateTake').disabled = true;
+  try {
+    await sleep(350);
+    await waitStill(1500);
+    const src = frameSource(), [vw, vh] = sourceSize(src), m = S.movie;
+    if (!vw || !m || S.screen !== 'shoot') return;
+    let W = m.w, H = m.h;
+    if (!W) { const k = Math.min(1, MAX_SIDE / Math.max(vw, vh)); W = Math.round((vw * k) / 2) * 2; H = Math.round((vh * k) / 2) * 2; }
+    else if (Math.abs(vw / vh - W / H) > 0.03) { $('#rotateMsg').hidden = false; return; }
+    const c = S.capCanvas;
+    c.width = W; c.height = H;
+    const x = c.getContext('2d'), acc = new Uint16Array(W * H * 4);
+    for (let k = 0; k < 4; k++) {
+      if (k) await sleep(80);
+      x.drawImage(src, 0, 0, W, H);
+      const d = x.getImageData(0, 0, W, H).data;
+      for (let i = 0; i < d.length; i++) acc[i] += d[i];
+    }
+    const img = x.createImageData(W, H), o = img.data;
+    for (let i = 0; i < o.length; i++) o[i] = (acc[i] + 2) >> 2;
+    x.putImageData(img, 0, 0);
+    flash(); Sound.shutter();
+    const sh = Math.round((SMALL_W * H) / W), small = Vision.grab(c, SMALL_W, sh), full = await toBlob(c, 'image/jpeg', PHOTO_Q);
+    await DB.put('aux', { id: `${m.id}/plate`, full, small, sw: SMALL_W, sh, w: W, h: H, made: false, t: Date.now() });
+    if (!m.w) { S.movie = { ...m, w: W, h: H, updated: Date.now() }; await DB.put('movies', S.movie); }
+    S.exportBlob = null;
+    hidePlateMsg();
+    await Fx.Live.reload(); liveGhost(); applySceneBadge();
+    toast('Got it! Now put your toys back');
+  } finally {
+    plateBusy = false; $('#plateTake').disabled = false;
+  }
 }
 
 // ---------- wiring ----------

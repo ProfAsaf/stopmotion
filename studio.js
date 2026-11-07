@@ -559,8 +559,8 @@ const Studio = (() => {
         } else {
           bgKids.push(
             slider('Cut-out', 0, 1, 0.01, s.cut, (v) => { s.cut = v; ST.lib.dropKeys(); drawPreview(); }, (v) => { s.cut = v; changed({ keys: true }); }),
-            hint('Slide right if parts of your toys disappear, left if bits of the room show.'),
-            toggle('Shadows', 'Keeps the shadows under the toys. Turn off if dark parts of a toy vanish.', s.shadows !== false, (v) => { s.shadows = v; changed({ keys: true }); }),
+            hint('Slide right if parts of your toys disappear, left if shadows or bits of the room show.'),
+            toggle('Shadows', 'Shows your toys’ shadows on the new background.', s.shadows !== false, (v) => { s.shadows = v; changed({ keys: true }); }),
             row(btn('📷 New empty photo', takePlate, 'pill small'), btn('🧩 Make from my photos', makePlate, 'pill small')));
           if (lib.plate.made) bgKids.push(hint('The empty set was made from your photos. For the cleanest cut-outs, take one with the camera.'));
         }

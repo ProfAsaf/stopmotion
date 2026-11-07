@@ -15,7 +15,17 @@ The Home Screen app gets far more storage for photos than a browser tab (Chrome 
   shape (wide, square, tall) is in Settings.
 - **Magic scene:** take one photo of the empty set, then the toys are cut out live onto a background (sky, space,
   under the sea, stage, …), with effects like snow, rain or confetti in front. The choices open in a panel beside
-  the live picture.
+  the live picture. The empty photo waits for the iPad to stop wobbling from the tap and averages a few camera
+  frames.
+
+**How the cut-out works** (`keyMask` in `fx.js`): each picture is compared with the empty set after
+lining the two up to a fraction of a pixel (a bump, a knock of a few centimetres, focus breathing) and
+matching the camera's exposure and colour. Differences are judged against the camera's own noise.
+Patches that are only lighter or darker than the set are sorted into shadows and changes of light
+(soft edges, the room's pattern still showing) and toy parts (crisp outlines, inside a toy's outline,
+much darker than a shadow). The edge follows the photo's own edges. Shadows are drawn as a soft
+darkening of the new background. The hard case is a toy the same colour as the wall it stands in
+front of (white on white).
 
 Photos are always saved whole, so framing and scenes can be changed later.
 
@@ -60,3 +70,17 @@ python -m http.server 8765
 Then open http://localhost:8765/?fake.
 
 The icons are drawn by `tools/make_icons.py` (needs Pillow): `python tools/make_icons.py icons`.
+
+`tools/keybench/` scores the cut-out on realistic test photos with known answers. It covers toys darker than the
+wall, the wall's own colour, shadows, a bumped or knocked camera, light changes and empty rooms. It needs Node and
+Python with numpy, scipy and Pillow:
+
+```bash
+python tools/keybench/make_scenes.py /tmp/keybench-scenes
+```
+
+```bash
+node tools/keybench/bench.js fx.js /tmp/keybench-scenes /tmp/keybench-out 320,480,640
+```
+
+`tools/keybench/sheet.py` draws the results side by side (photo, true cut-out, the app's cut-out, the toy on a new background).

@@ -219,24 +219,6 @@ const Fx = (() => {
   }
 
   // ---------- cut-outs: what in a photo is not the empty set ----------
-  function blurRGB(S, w, h) {
-    const n = w * h, T = new Uint8ClampedArray(n * 4), O = new Uint8ClampedArray(n * 4);
-    for (let y = 0; y < h; y++) {
-      const r = y * w;
-      for (let x = 0; x < w; x++) {
-        const l = (r + (x > 0 ? x - 1 : x)) * 4, c = (r + x) * 4, rr = (r + (x < w - 1 ? x + 1 : x)) * 4;
-        T[c] = (S[l] + S[c] + S[rr]) / 3; T[c + 1] = (S[l + 1] + S[c + 1] + S[rr + 1]) / 3; T[c + 2] = (S[l + 2] + S[c + 2] + S[rr + 2]) / 3; T[c + 3] = S[c + 3];
-      }
-    }
-    for (let y = 0; y < h; y++) {
-      const u = (y > 0 ? y - 1 : y) * w, r = y * w, d = (y < h - 1 ? y + 1 : y) * w;
-      for (let x = 0; x < w; x++) {
-        const a = (u + x) * 4, c = (r + x) * 4, b = (d + x) * 4;
-        O[c] = (T[a] + T[c] + T[b]) / 3; O[c + 1] = (T[a + 1] + T[c + 1] + T[b + 1]) / 3; O[c + 2] = (T[a + 2] + T[c + 2] + T[b + 2]) / 3; O[c + 3] = T[c + 3];
-      }
-    }
-    return O;
-  }
   function box1(a, w, h) {
     const t = new Uint8Array(a.length);
     for (let y = 0; y < h; y++) { const r = y * w; for (let x = 0; x < w; x++) t[r + x] = (a[r + (x > 0 ? x - 1 : x)] + a[r + x] + a[r + (x < w - 1 ? x + 1 : x)]) / 3; }
@@ -264,54 +246,517 @@ const Fx = (() => {
     }
     return out;
   }
-  // F = photo, P = empty set (RGBA, same size). cut 0..1: how eagerly things count as toys.
-  // Returns alpha (how much each pixel is toy) and shadow (how much shadow falls there).
-  function keyMask(F, P, w, h, cut, shadows) {
-    const n = w * h, f = blurRGB(F, w, h), p = blurRGB(P, w, h);
-    const hist = [new Uint32Array(128), new Uint32Array(128), new Uint32Array(128)];
-    for (let i = 0; i < n; i += 3) {
-      const q = i * 4;
-      if (P[q + 3] < 128) continue;
-      for (let c = 0; c < 3; c++) {
-        const a = p[q + c], b = f[q + c];
-        if (a < 12 || a > 245 || b < 8 || b > 250) continue;
-        const bin = Math.round(Math.log2(b / a) * 64 + 64);
-        if (bin >= 0 && bin < 128) hist[c][bin]++;
+  // Work buffers, kept between calls (the camera screen cuts out several times a second).
+  const bufs = {};
+  function buf(name, n, T = Float32Array) {
+    const b = bufs[name];
+    return b && b.length === n && b instanceof T ? b : (bufs[name] = new T(n));
+  }
+  // [1 2 1] blur in both directions (edges repeat).
+  function blur121(s, w, h, o, t) {
+    for (let y = 0; y < h; y++) {
+      const r = y * w;
+      if (w < 2) { t[r] = s[r]; continue; }
+      t[r] = (3 * s[r] + s[r + 1]) * 0.25;
+      for (let x = 1; x < w - 1; x++) t[r + x] = (s[r + x - 1] + 2 * s[r + x] + s[r + x + 1]) * 0.25;
+      t[r + w - 1] = (s[r + w - 2] + 3 * s[r + w - 1]) * 0.25;
+    }
+    for (let y = 0; y < h; y++) {
+      const r = y * w, u = y > 0 ? r - w : r, d = y < h - 1 ? r + w : r;
+      for (let x = 0; x < w; x++) o[r + x] = (t[u + x] + 2 * t[r + x] + t[d + x]) * 0.25;
+    }
+  }
+  // Mean over a (2r+1)² square (smaller at the edges).
+  function boxMean(s, w, h, r, o, t) {
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      let acc = 0;
+      for (let x = 0; x <= r && x < w; x++) acc += s[row + x];
+      for (let x = 0; x < w; x++) {
+        t[row + x] = acc / (Math.min(w - 1, x + r) - Math.max(0, x - r) + 1);
+        if (x + r + 1 < w) acc += s[row + x + r + 1];
+        if (x - r >= 0) acc -= s[row + x - r];
       }
     }
-    const gain = hist.map((hh) => { let tot = 0; for (const v of hh) tot += v; if (tot < 50) return 1; for (let i = 0, acc = 0; i < 128; i++) { acc += hh[i]; if (acc >= tot / 2) return Math.pow(2, (i - 64) / 64); } return 1; });
-    const lo = 40 - 28 * clamp(cut, 0, 1), hi = lo + 18, alpha = new Uint8Array(n), shadow = new Uint8Array(n);
-    // Only trust spots well inside the empty-set picture: its edges get darkened by the blur when it is slid into place.
-    let ok = new Uint8Array(n);
-    for (let i = 0; i < n; i++) ok[i] = P[i * 4 + 3] > 250 ? 1 : 0;
+    const acc = buf('boxAcc', w, Float64Array);
+    acc.fill(0);
+    for (let y = 0; y <= r && y < h; y++) for (let x = 0, row = y * w; x < w; x++) acc[x] += t[row + x];
+    for (let y = 0; y < h; y++) {
+      const row = y * w, inv = 1 / (Math.min(h - 1, y + r) - Math.max(0, y - r) + 1);
+      for (let x = 0; x < w; x++) o[row + x] = acc[x] * inv;
+      if (y + r + 1 < h) for (let x = 0, a = (y + r + 1) * w; x < w; x++) acc[x] += t[a + x];
+      if (y - r >= 0) for (let x = 0, a = (y - r) * w; x < w; x++) acc[x] -= t[a + x];
+    }
+  }
+  // How one colour channel changed between the empty set and this photo (exposure, white balance,
+  // tone curve): photo value for each empty-set value, from the middle photo value at each level.
+  // Most pixels are the room, so toys hardly move it; it stays close to one overall gain.
+  function toneLUT(fp, pp, ok, n, lut) {
+    const hist = buf('tlHist', 32 * 256, Uint32Array), cnt = buf('tlCnt', 32, Uint32Array), rat = buf('tlRat', 32, Float64Array);
+    hist.fill(0); cnt.fill(0);
+    for (let i = 0; i < n; i += 2) {
+      if (!ok[i]) continue;
+      const p = pp[i] | 0, f = fp[i] | 0;
+      if (p < 8 || p > 247 || f > 251) continue;
+      hist[(p >> 3) * 256 + f]++; cnt[p >> 3]++;
+    }
+    const all = [];
+    for (let b = 0; b < 32; b++) {
+      rat[b] = NaN;
+      if (cnt[b] < 40) continue;
+      for (let f = 0, acc = 0, row = b * 256; f < 256; f++) { acc += hist[row + f]; if (acc * 2 >= cnt[b]) { rat[b] = (f + 0.5) / (b * 8 + 4); break; } }
+      all.push([rat[b], cnt[b]]);
+    }
+    let g = 1;
+    if (all.length) {
+      all.sort((a, b) => a[0] - b[0]);
+      let tot = 0; for (const a of all) tot += a[1];
+      for (let i = 0, acc = 0; i < all.length; i++) { acc += all[i][1]; if (acc * 2 >= tot) { g = all[i][0]; break; } }
+    }
+    for (let b = 0; b < 32; b++) if (rat[b] === rat[b]) rat[b] = clamp(rat[b], g / 1.08, g * 1.08);
+    for (let b = 0; b < 32; b++) if (rat[b] !== rat[b]) {        // fill gaps from the nearest levels
+      let l = b - 1, r = b + 1;
+      while (l >= 0 && rat[l] !== rat[l]) l--;
+      while (r < 32 && rat[r] !== rat[r]) r++;
+      rat[b] = l >= 0 && r < 32 ? rat[l] + ((rat[r] - rat[l]) * (b - l)) / (r - l) : l >= 0 ? rat[l] : r < 32 ? rat[r] : g;
+    }
+    for (let v = 0; v < 256; v++) {
+      const u = clamp((v - 4) / 8, 0, 31), b0 = Math.floor(u), b1 = Math.min(31, b0 + 1), t = u - b0;
+      lut[v] = v * (rat[b0] * (1 - t) + rat[b1] * t);
+    }
+  }
+  const mapv = (lut, v) => { const i = v | 0; return i >= 255 ? lut[255] : lut[i] + (lut[i + 1] - lut[i]) * (v - i); };
+  // Middle and quartiles of a value over the picture (mostly the room, so: the camera's noise).
+  function spread(a, ok, n, lo, hi, step) {
+    const N = Math.round((hi - lo) / step), hist = buf('spHist' + N, N + 1, Uint32Array);
+    hist.fill(0);
+    let tot = 0;
+    for (let i = 0; i < n; i += 2) if (ok[i]) { hist[clamp(Math.round((a[i] - lo) / step), 0, N)]++; tot++; }
+    const at = (q) => { for (let k = 0, acc = 0; k <= N; k++) { acc += hist[k]; if (acc >= q * tot) return lo + k * step; } return hi; };
+    return { mid: at(0.5), lo: at(0.25), hi: at(0.75) };
+  }
+
+  // Lines the empty set up with the photo to a fraction of a pixel (a bump of the iPad, focus
+  // breathing, whatever steady-camera left): shift, turn and zoom, fitted on the room's edges
+  // (toys and shadows don't fit, so they drop out). fit {tx, ty, a, b}: photo pixel (x, y) shows
+  // empty-set point u = cx + (1+a)X − bY + tx, v = cy + bX + (1+a)Y + ty, with X = x − cx, Y = y − cy.
+  // warm: fit is last moment's answer (the camera screen), so only the full size is checked.
+  function fineAlign(fy, qy, ok, w, h, fit, warm) {
+    let p = fit;
+    if (!warm) {
+      const lv = [[fy, qy, ok, w, h]];
+      for (let L = 1; L <= 3; L++) {
+        const [f, q, o, W, H] = lv[L - 1], w2 = W >> 1, h2 = H >> 1, n2 = w2 * h2;
+        const fh = buf('pyF' + L, n2), qh = buf('pyQ' + L, n2), oh = buf('pyO' + L, n2, Uint8Array);
+        for (let y = 0; y < h2; y++) for (let x = 0; x < w2; x++) {
+          const i = 2 * y * W + 2 * x, j = y * w2 + x;
+          fh[j] = (f[i] + f[i + 1] + f[i + W] + f[i + W + 1]) * 0.25;
+          qh[j] = (q[i] + q[i + 1] + q[i + W] + q[i + W + 1]) * 0.25;
+          oh[j] = o[i] & o[i + 1] & o[i + W] & o[i + W + 1];
+        }
+        lv.push([fh, qh, oh, w2, h2]);
+      }
+      // A knock can move the picture further than the fit reaches: first try whole steps at 1/8 size.
+      const [s0, s1] = coarseShift(...lv[3]);
+      p = { tx: fit.tx / 4 + s0 * 2, ty: fit.ty / 4 + s1 * 2, a: fit.a, b: fit.b };
+      p = lkLevel(...lv[2], p, 1, 6, 'q');
+      p = lkLevel(...lv[1], { tx: p.tx * 2, ty: p.ty * 2, a: p.a, b: p.b }, 1, 4, 'h');
+      p = { tx: p.tx * 2, ty: p.ty * 2, a: p.a, b: p.b };
+    }
+    p = lkLevel(fy, qy, ok, w, h, p, 2, warm ? 3 : 4, 'f');
+    const lim = Math.max(6, w / 12);
+    return Math.abs(p.tx) > lim || Math.abs(p.ty) > lim || Math.abs(p.a) > 0.03 || Math.abs(p.b) > 0.03 ? { tx: 0, ty: 0, a: 0, b: 0 } : p;
+  }
+  // The whole-pixel shift (up to 5 each way) that best matches two small pictures, counting only
+  // where the empty set has some edge; no shift unless another matches clearly better.
+  function coarseShift(f, q, ok, w, h) {
+    let best = [0, 0], bestC = Infinity, c0 = Infinity;
+    for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
+      let sum = 0, cnt = 0;
+      for (let y = Math.max(1, -dy + 1); y < Math.min(h - 1, h - dy - 1); y++) for (let x = Math.max(1, -dx + 1); x < Math.min(w - 1, w - dx - 1); x++) {
+        const j = (y + dy) * w + x + dx;
+        if (!ok[j] || Math.abs(q[j + 1] - q[j - 1]) + Math.abs(q[j + w] - q[j - w]) < 6) continue;
+        sum += Math.min(18, Math.abs(f[y * w + x] - q[j])); cnt++;
+      }
+      if (cnt < 20) continue;
+      const c = sum / cnt;
+      if (!dx && !dy) c0 = c;
+      if (c < bestC) { bestC = c; best = [dx, dy]; }
+    }
+    return c0 < Infinity && bestC < c0 * 0.85 ? best : [0, 0];
+  }
+  // One level of the fit (Gauss-Newton with robust weights). Only spots where the empty set has an
+  // edge say anything about position; damping keeps directions with few edges (a plain wall, a
+  // room of level lines) from wandering, and a fit that doesn't match better is dropped.
+  function lkLevel(f, q, ok, w, h, p0, step, iters, tag) {
+    const n = w * h, gx = buf('lkGX' + tag, n), gy = buf('lkGY' + tag, n);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      gx[i] = x > 0 && x < w - 1 ? (q[i + 1] - q[i - 1]) * 0.5 : 0;
+      gy[i] = y > 0 && y < h - 1 ? (q[i + w] - q[i - w]) * 0.5 : 0;
+    }
+    const cx = (w - 1) / 2, cy = (h - 1) / 2, Rn = Math.max(w, h) / 2;
+    let m = 0;
+    const list = buf('lkL' + tag, Math.ceil(w / step) * Math.ceil(h / step), Int32Array);
+    for (let y = 2; y < h - 2; y += step) for (let x = 2; x < w - 2; x += step) {
+      const i = y * w + x;
+      if (ok[i] && gx[i] * gx[i] + gy[i] * gy[i] >= 1) list[m++] = i;
+    }
+    if (m < 40) return p0;
+    const every = Math.max(1, Math.round(m / 6000)), J = buf('lkJ' + tag, m * 4), R = buf('lkR' + tag, m), ab = buf('lkAbs' + tag, m);
+    const A = new Float64Array(16), B = new Float64Array(4);
+    // Residuals and slopes at a fit; returns how many samples landed inside.
+    const look = (p) => {
+      let k = 0;
+      for (let s = 0; s < m; s += every) {
+        const i = list[s], x = i % w, y = (i - x) / w, X = x - cx, Y = y - cy;
+        const u = cx + (1 + p.a) * X - p.b * Y + p.tx, v = cy + p.b * X + (1 + p.a) * Y + p.ty;
+        if (u < 1 || v < 1 || u >= w - 2 || v >= h - 2) continue;
+        const x0 = u | 0, y0 = v | 0, ax = u - x0, ay = v - y0, j = y0 * w + x0;
+        if (!ok[j] || !ok[j + w + 1]) continue;
+        const w00 = (1 - ax) * (1 - ay), w10 = ax * (1 - ay), w01 = (1 - ax) * ay, w11 = ax * ay;
+        const g0 = gx[j] * w00 + gx[j + 1] * w10 + gx[j + w] * w01 + gx[j + w + 1] * w11;
+        const g1 = gy[j] * w00 + gy[j + 1] * w10 + gy[j + w] * w01 + gy[j + w + 1] * w11;
+        const o4 = k * 4;
+        J[o4] = g0; J[o4 + 1] = g1; J[o4 + 2] = (g0 * X + g1 * Y) / Rn; J[o4 + 3] = (g1 * X - g0 * Y) / Rn;
+        R[k++] = f[i] - (q[j] * w00 + q[j + 1] * w10 + q[j + w] * w01 + q[j + w + 1] * w11);
+      }
+      return k;
+    };
+    const cost = (k, c2) => { let s = 0; for (let t = 0; t < k; t++) { const z = Math.min(1, R[t] * R[t] * c2); s += 1 - (1 - z) * (1 - z) * (1 - z); } return s / Math.max(1, k); };
+    let p = { ...p0 }, c2 = 0, cost0 = 0;
+    for (let it = 0; it < iters; it++) {
+      const k = look(p);
+      if (k < 40) return p0;
+      if (!it) {
+        // Tukey weights: residuals far beyond the typical one are toys or shadows.
+        for (let t = 0; t < k; t++) ab[t] = Math.abs(R[t]);
+        const c = Math.max(4.685 * 1.4826 * quickMedian(ab, k), 8);
+        c2 = 1 / (c * c); cost0 = cost(k, c2);
+      }
+      A.fill(0); B.fill(0);
+      for (let t = 0; t < k; t++) {
+        const r = R[t], z = r * r * c2;
+        if (z >= 1) continue;
+        const wt = (1 - z) * (1 - z), o4 = t * 4, j0 = J[o4], j1 = J[o4 + 1], j2 = J[o4 + 2], j3 = J[o4 + 3];
+        A[0] += wt * j0 * j0; A[1] += wt * j0 * j1; A[2] += wt * j0 * j2; A[3] += wt * j0 * j3;
+        A[5] += wt * j1 * j1; A[6] += wt * j1 * j2; A[7] += wt * j1 * j3;
+        A[10] += wt * j2 * j2; A[11] += wt * j2 * j3; A[15] += wt * j3 * j3;
+        B[0] += wt * j0 * r; B[1] += wt * j1 * r; B[2] += wt * j2 * r; B[3] += wt * j3 * r;
+      }
+      A[4] = A[1]; A[8] = A[2]; A[9] = A[6]; A[12] = A[3]; A[13] = A[7]; A[14] = A[11];
+      const lam = Math.max(0.001 * (A[0] + A[5] + A[10] + A[15]) / 4, 1500);
+      for (let d = 0; d < 4; d++) A[d * 5] += lam;
+      const d = solve4(A, B);
+      if (!d) break;
+      p = { tx: p.tx + d[0], ty: p.ty + d[1], a: p.a + d[2] / Rn, b: p.b + d[3] / Rn };
+      if (Math.abs(d[0]) + Math.abs(d[1]) + Math.abs(d[2]) + Math.abs(d[3]) < 0.005) break;
+    }
+    const k = look(p);
+    return k >= 40 && cost(k, c2) < cost0 * 0.975 ? p : p0;
+  }
+  function solve4(A, B) {
+    const M = [0, 1, 2, 3].map((r) => [A[r * 4], A[r * 4 + 1], A[r * 4 + 2], A[r * 4 + 3], B[r]]);
+    for (let c = 0; c < 4; c++) {
+      let piv = c;
+      for (let r = c + 1; r < 4; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+      if (Math.abs(M[piv][c]) < 1e-12) return null;
+      [M[c], M[piv]] = [M[piv], M[c]];
+      for (let r = 0; r < 4; r++) if (r !== c) { const k = M[r][c] / M[c][c]; for (let j = c; j < 5; j++) M[r][j] -= k * M[c][j]; }
+    }
+    return M.map((row, r) => row[4] / row[r]);
+  }
+  function quickMedian(a, n) {           // reorders a[0..n)
+    let lo = 0, hi = n - 1, k = n >> 1;
+    while (lo < hi) {
+      const piv = a[(lo + hi) >> 1];
+      let i = lo, j = hi;
+      while (i <= j) { while (a[i] < piv) i++; while (a[j] > piv) j--; if (i <= j) { const t = a[i]; a[i] = a[j]; a[j] = t; i++; j--; } }
+      if (k <= j) hi = j; else if (k >= i) lo = i; else break;
+    }
+    return a[k];
+  }
+  // Moves the empty set's planes (and where it is valid) by a fit, in place.
+  function warpPlanes(p, planes, ok, w, h) {
+    const n = w * h, cx = (w - 1) / 2, cy = (h - 1) / 2;
+    const src = planes.map((pl, k) => { const c = buf('wp' + k, n); c.set(pl); return c; });
+    const oks = buf('wpOk', n, Uint8Array); oks.set(ok);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, X = x - cx, Y = y - cy;
+      const u = cx + (1 + p.a) * X - p.b * Y + p.tx, v = cy + p.b * X + (1 + p.a) * Y + p.ty;
+      if (u < 0 || v < 0 || u > w - 1 || v > h - 1) { ok[i] = 0; continue; }
+      const x0 = Math.min(w - 2, u | 0), y0 = Math.min(h - 2, v | 0), ax = u - x0, ay = v - y0, j = y0 * w + x0;
+      ok[i] = oks[j] & oks[j + 1] & oks[j + w] & oks[j + w + 1];
+      const w00 = (1 - ax) * (1 - ay), w10 = ax * (1 - ay), w01 = (1 - ax) * ay, w11 = ax * ay;
+      for (let k = 0; k < planes.length; k++) { const s = src[k]; planes[k][i] = s[j] * w00 + s[j + 1] * w10 + s[j + w] * w01 + s[j + w + 1] * w11; }
+    }
+  }
+
+  // F = photo, P = empty set (RGBA, same size; P's see-through edges are ignored).
+  // cut 0..1: how eagerly things count as toys. o.fit: a starting guess for lining the two up
+  // (the camera screen passes the last one). Returns alpha (how much each pixel is toy), shadow
+  // (how much the toys darken the set there) and the fit.
+  function keyMask(F, P, w, h, cut = 0.5, shadows = true, o = {}) {
+    const n = w * h;
+    cut = clamp(cut == null ? 0.5 : cut, 0, 1);
+    const f0 = buf('f0', n), f1 = buf('f1', n), f2 = buf('f2', n), p0 = buf('p0', n), p1 = buf('p1', n), p2 = buf('p2', n);
+    const ok = buf('ok', n, Uint8Array);
+    for (let i = 0, q = 0; i < n; i++, q += 4) {
+      f0[i] = F[q]; f1[i] = F[q + 1]; f2[i] = F[q + 2];
+      p0[i] = P[q]; p1[i] = P[q + 1]; p2[i] = P[q + 2];
+      ok[i] = P[q + 3] > 250 ? 1 : 0;
+    }
+    const tmp = buf('tmp', n), b0 = buf('b0', n), b1 = buf('b1', n), b2 = buf('b2', n), c0 = buf('c0', n), c1 = buf('c1', n), c2 = buf('c2', n);
+    const L0 = buf('L0', 256), L1 = buf('L1', 256), L2 = buf('L2', 256), FY = buf('FY', n), QY = buf('QY', n);
+    blur121(f0, w, h, b0, tmp); blur121(f1, w, h, b1, tmp); blur121(f2, w, h, b2, tmp);
+    const prep = () => {
+      blur121(p0, w, h, c0, tmp); blur121(p1, w, h, c1, tmp); blur121(p2, w, h, c2, tmp);
+      toneLUT(b0, c0, ok, n, L0); toneLUT(b1, c1, ok, n, L1); toneLUT(b2, c2, ok, n, L2);
+    };
+    prep();
+    // Line the empty set up with the photo (the iPad may have moved a hair since it was taken).
+    for (let i = 0; i < n; i++) {
+      FY[i] = 0.299 * b0[i] + 0.587 * b1[i] + 0.114 * b2[i];
+      QY[i] = 0.299 * mapv(L0, c0[i]) + 0.587 * mapv(L1, c1[i]) + 0.114 * mapv(L2, c2[i]);
+    }
+    const fit = fineAlign(FY, QY, ok, w, h, o.fit || { tx: 0, ty: 0, a: 0, b: 0 }, !!o.fit);
+    if (Math.abs(fit.tx) + Math.abs(fit.ty) > 0.02 || Math.abs(fit.a) + Math.abs(fit.b) > 2e-5) { warpPlanes(fit, [p0, p1, p2], ok, w, h); prep(); }
+    // Only trust spots well inside the empty-set picture (its edges blur when it is moved).
     for (let pass = 0; pass < 2; pass++) {
-      const t = new Uint8Array(n);
+      const t = buf('ok2', n, Uint8Array);
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         const i = y * w + x;
         t[i] = ok[i] && (x === 0 || ok[i - 1]) && (x === w - 1 || ok[i + 1]) && (y === 0 || ok[i - w]) && (y === h - 1 || ok[i + w]) ? 1 : 0;
       }
-      ok = t;
+      ok.set(t);
     }
-    for (let i = 0, q = 0; i < n; i++, q += 4) {
-      if (!ok[i]) continue;
-      const fr = f[q], fg = f[q + 1], fb = f[q + 2], pr = p[q] * gain[0], pg = p[q + 1] * gain[1], pb = p[q + 2] * gain[2];
-      const yf = 0.299 * fr + 0.587 * fg + 0.114 * fb + 6, yp = 0.299 * pr + 0.587 * pg + 0.114 * pb + 6;
-      const dcr = fr / yf - pr / yp, dcb = fb / yf - pb / yp, chroma = Math.sqrt(dcr * dcr + dcb * dcb) * Math.min(yf, yp);
-      const ratio = yf / yp;
-      let score;
-      if (shadows && ratio > 0.3 && ratio < 0.94 && chroma < 14) {   // darker, same color: a shadow
-        score = chroma * 1.6;
-        shadow[i] = Math.round(clamp((0.94 - ratio) / 0.64, 0, 1) * 210);
-      } else score = Math.max(Math.abs(yf - yp), chroma * 1.6);
-      alpha[i] = score <= lo ? 0 : score >= hi ? 255 : ((score - lo) / (hi - lo)) * 255;
+
+    // Per pixel: brightness ratio s (photo ≈ s × empty set), colour change cd (what a change of
+    // brightness can't explain), luminance change dy, and how fast the empty set changes there (eg:
+    // a leftover hair of misalignment shows up along its edges).
+    const S = buf('S', n), CD = buf('CD', n), DY = buf('DY', n), QN = buf('QN', n), EG = buf('EG', n);
+    const q0 = buf('q0', n), q1 = buf('q1', n), q2 = buf('q2', n);
+    for (let i = 0; i < n; i++) { q0[i] = mapv(L0, c0[i]); q1[i] = mapv(L1, c1[i]); q2[i] = mapv(L2, c2[i]); }
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!ok[i]) { S[i] = 1; CD[i] = 0; DY[i] = 0; QN[i] = 1; EG[i] = 0; continue; }
+      const fr = b0[i], fg = b1[i], fb = b2[i], qr = q0[i], qg = q1[i], qb = q2[i];
+      const qq = qr * qr + qg * qg + qb * qb + 1, s = (fr * qr + fg * qg + fb * qb) / qq;
+      const er = fr - s * qr, eg = fg - s * qg, eb = fb - s * qb;
+      S[i] = s; CD[i] = Math.sqrt(er * er + eg * eg + eb * eb); QN[i] = Math.sqrt(qq);
+      DY[i] = 0.299 * (fr - qr) + 0.587 * (fg - qg) + 0.114 * (fb - qb);
+      const l = x > 0 ? i - 1 : i, r = x < w - 1 ? i + 1 : i, u = y > 0 ? i - w : i, d = y < h - 1 ? i + w : i;
+      EG[i] = Math.max(Math.abs(q0[r] - q0[l]) + Math.abs(q0[d] - q0[u]), Math.abs(q1[r] - q1[l]) + Math.abs(q1[d] - q1[u]), Math.abs(q2[r] - q2[l]) + Math.abs(q2[d] - q2[u])) * 0.5;
     }
-    const bin = new Uint8Array(n);
-    for (let i = 0; i < n; i++) bin[i] = alpha[i] > 110 ? 1 : 0;
-    dropBlobs(bin, w, h, 1, Math.max(6, Math.round(n * 0.0005)), false);
-    dropBlobs(bin, w, h, 0, Math.round(n * 0.006), true);
-    for (let i = 0; i < n; i++) { alpha[i] = bin[i] ? 255 : 0; if (bin[i]) shadow[i] = 0; }
-    box1(alpha, w, h); box1(alpha, w, h); box1(shadow, w, h);
-    return { alpha, shadow };
+    // The camera's noise, so the thresholds suit a dim room as well as a bright one.
+    const dy = spread(DY, ok, n, -64, 64, 0.25), sY = clamp((dy.hi - dy.lo) / 1.349, 0.6, 8);
+    const sC = clamp(spread(CD, ok, n, 0, 64, 0.25).mid, 0.6, 8);
+    const kS = 7.5 - 3 * cut, kW = 3.6 - 1.2 * cut;
+    const tYw = Math.max(kW * sY, 2.5), tCw = Math.max(kW * sC, 3), tCs = Math.max(kS * sC, 7), yS = Math.max(kS * sY, 6);
+
+    // 0 = the set, 1 = only lighter or darker (a shadow? or a toy the set's colour), 2 = a little
+    // different, 3 = clearly different.
+    const cls = buf('cls', n, Uint8Array);
+    for (let i = 0; i < n; i++) {
+      if (!ok[i]) { cls[i] = 0; continue; }
+      const s = S[i], cd = CD[i], d = DY[i], e = 0.4 * EG[i], allow = 0.12 * Math.abs(1 - s) * QN[i] + e;
+      if (cd > tCs + allow || (s < 0.42 && d < -yS - e) || (s > 1.45 && d > yS + e)) cls[i] = 3;
+      else if (cd > tCw + allow) cls[i] = 2;
+      else if (d < -tYw - e || d > tYw + e) cls[i] = 1;
+      else cls[i] = 0;
+    }
+
+    // Toys: blobs of different pixels with a clearly different pixel in them (or big enough).
+    const obj = buf('obj', n, Uint8Array), lab = buf('lab', n, Int32Array), stack = buf('stack', n, Int32Array), list = buf('list', n, Int32Array);
+    obj.fill(0); lab.fill(0);
+    const minWeak = Math.max(12, Math.round(n * 0.0015));
+    for (let s0 = 0; s0 < n; s0++) {
+      if (cls[s0] < 2 || lab[s0]) continue;
+      let sp = 0, cnt = 0, strong = false;
+      stack[sp++] = s0; lab[s0] = 1;
+      while (sp) {
+        const i = stack[--sp], x = i % w;
+        list[cnt++] = i;
+        if (cls[i] === 3) strong = true;
+        if (x > 0 && !lab[i - 1] && cls[i - 1] >= 2) { lab[i - 1] = 1; stack[sp++] = i - 1; }
+        if (x < w - 1 && !lab[i + 1] && cls[i + 1] >= 2) { lab[i + 1] = 1; stack[sp++] = i + 1; }
+        if (i >= w && !lab[i - w] && cls[i - w] >= 2) { lab[i - w] = 1; stack[sp++] = i - w; }
+        if (i < n - w && !lab[i + w] && cls[i + w] >= 2) { lab[i + w] = 1; stack[sp++] = i + w; }
+      }
+      if (strong || cnt >= minWeak) for (let j = 0; j < cnt; j++) obj[list[j]] = 1;
+    }
+
+    // A toy's outline holds parts the colour of the set (a white shirt between a toy's head, hands
+    // and legs): lighter or darker pixels inside the clear parts' closed outline are toy too.
+    const dA = buf('dA', n, Uint16Array), rr = 3 * Math.max(3, Math.round(w / 20));
+    distTo(obj, 1, w, h, dA);
+    for (let i = 0; i < n; i++) tmp[i] = dA[i] <= rr ? 1 : 0;
+    distTo(tmp, 0, w, h, dA);
+    for (let i = 0; i < n; i++) if (cls[i] === 1 && dA[i] > rr) obj[i] = 1;
+
+    // Other lighter or darker patches: a shadow or a change of light (soft edges, the set's pattern
+    // still there, beside the toys) or a toy the set's colour (crisp edges, among toys, much darker,
+    // hides the pattern).
+    const shadow = new Uint8Array(n), alpha = new Uint8Array(n), rises = buf('zRises', n), hist = buf('zHist', 64, Uint32Array);
+    const sub = buf('sub', n, Int32Array), list2 = buf('list2', n, Int32Array);
+    sub.fill(0);
+    const minZ = Math.max(4, Math.round(n * 0.00004)), sP = sY / Math.SQRT2;
+    const cliff = (i, j) => Math.abs(S[i] - S[j]) > Math.max(0.03, (5 * sP) / Math.max(8, 0.299 * q0[i] + 0.587 * q1[i] + 0.114 * q2[i]));
+    // One patch's verdict (pixels L[0..cnt); inP(j): is j in it).
+    const judge = (L, cnt, inP) => {
+      let sumS = 0, adjO = 0, adjB = 0, rise = 0, pairs = 0, crisp = 0;
+      hist.fill(0);
+      for (let t = 0; t < cnt; t++) {
+        const i = L[t], x = i % w, ci = Math.abs(1 - S[i]);
+        sumS += S[i]; hist[Math.min(63, (ci * 96) | 0)]++;
+        for (let k = 0; k < 4; k++) {
+          const dx = k === 0 ? -1 : k === 1 ? 1 : 0, dy = k === 2 ? -1 : k === 3 ? 1 : 0;
+          if ((dx < 0 && x < 1) || (dx > 0 && x > w - 2)) continue;
+          const j = i + dx + dy * w;
+          if (j < 0 || j >= n || !ok[j]) continue;
+          if (obj[j]) { adjO++; continue; }
+          if (inP(j) || cls[j] !== 0) continue;
+          // the jump in change across this edge: a toy's edge jumps most of the way at once, a
+          // shadow's or a light's soft edge creeps up
+          adjB++;
+          const kk = (dx > 0 && x < 1) || (dx < 0 && x > w - 2) ? -1 : i - dx - dy * w;
+          const cIn = Math.max(ci, kk >= 0 && kk < n && inP(kk) ? Math.abs(1 - S[kk]) : 0), r = cIn - Math.abs(1 - S[j]);
+          rises[pairs++] = r; rise += r;
+        }
+      }
+      let c80 = 0;
+      for (let b = 0, acc = 0; b < 64; b++) { acc += hist[b]; if (acc >= cnt * 0.8) { c80 = (b + 0.5) / 96; break; } }
+      const big = Math.max(0.02, c80);
+      for (let t = 0; t < pairs; t++) if (rises[t] > 0.45 * big) crisp++;
+      const meanS = sumS / cnt, sharp = pairs ? rise / pairs / big : 1, crispFrac = pairs ? crisp / pairs : 0, enc = adjO / Math.max(1, adjO + adjB);
+      // A shadow touches its toy (often crisply, at the toy's foot) but fades softly everywhere
+      // else; a toy part has a crisp outline all the way round.
+      let score = (cut - 0.5) * 2.5;
+      if (enc >= 0.7) score += 2.5;             // nearly surrounded by toy
+      if (!adjO) score -= 1;                    // touches no toy: light, or a shadow from outside the picture
+      if (pairs >= 12) score += clamp((crispFrac - 0.55) * 8, -3, 2.5) + clamp((sharp - 0.5) * 4, -1.5, 1.5);
+      if (meanS < 0.5) score += 1.5;            // darker than shadows get
+      if (cnt > n * 0.25) score -= 2;           // a change over much of the picture is the light
+      return { isToy: score > 0, adjO };
+    };
+    const settle = (L, cnt, isToy) => {
+      for (let t = 0; t < cnt; t++) {
+        const i = L[t];
+        if (isToy) obj[i] = 1;
+        else if (shadows && S[i] < 1) shadow[i] = clamp(((1 - S[i]) / 0.85) * 255, 0, 190);
+      }
+    };
+    let zid = 2;
+    for (let s0 = 0; s0 < n; s0++) {
+      if (cls[s0] !== 1 || lab[s0] || obj[s0]) continue;
+      const id = zid++;
+      let sp = 0, cnt = 0;
+      stack[sp++] = s0; lab[s0] = id;
+      while (sp) {
+        const i = stack[--sp], x = i % w;
+        list[cnt++] = i;
+        if (x > 0 && cls[i - 1] === 1 && !lab[i - 1] && !obj[i - 1]) { lab[i - 1] = id; stack[sp++] = i - 1; }
+        if (x < w - 1 && cls[i + 1] === 1 && !lab[i + 1] && !obj[i + 1]) { lab[i + 1] = id; stack[sp++] = i + 1; }
+        if (i >= w && cls[i - w] === 1 && !lab[i - w] && !obj[i - w]) { lab[i - w] = id; stack[sp++] = i - w; }
+        if (i < n - w && cls[i + w] === 1 && !lab[i + w] && !obj[i + w]) { lab[i + w] = id; stack[sp++] = i + w; }
+      }
+      if (cnt < minZ) continue;
+      const v = judge(list, cnt, (j) => lab[j] === id);
+      if (v.isToy || !v.adjO || cnt < 60) { settle(list, cnt, v.isToy); continue; }
+      // A shadow-looking patch touching a toy may hold a toy part the set's colour (a grey head
+      // next to its own shadow): split it where the brightness jumps and judge the pieces.
+      for (let t = 0; t < cnt; t++) {
+        const s1 = list[t];
+        if (sub[s1]) continue;
+        const sid = zid++;
+        let sp2 = 0, c2 = 0;
+        stack[sp2++] = s1; sub[s1] = sid;
+        while (sp2) {
+          const i = stack[--sp2], x = i % w;
+          list2[c2++] = i;
+          for (let k = 0; k < 4; k++) {
+            const j = k === 0 ? (x > 0 ? i - 1 : -1) : k === 1 ? (x < w - 1 ? i + 1 : -1) : k === 2 ? i - w : i + w;
+            if (j < 0 || j >= n || lab[j] !== id || sub[j] || cliff(i, j)) continue;
+            sub[j] = sid; stack[sp2++] = j;
+          }
+        }
+        settle(list2, c2, c2 >= Math.max(minZ, 12) && c2 < cnt ? judge(list2, c2, (j) => sub[j] === sid).isToy : false);
+      }
+    }
+
+    // Tidy: drop specks, fill small holes.
+    dropBlobs(obj, w, h, 1, Math.max(6, Math.round(n * 0.0003)), false);
+    dropBlobs(obj, w, h, 0, Math.round(n * 0.0012), true);
+
+    // The decisions were made on a smoothed picture, so the outline sits half a pixel out: pull
+    // in edge pixels whose own (unsmoothed) colour is still the set's.
+    for (let i = 0; i < n; i++) tmp[i] = obj[i];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!tmp[i] || ((x === 0 || tmp[i - 1]) && (x === w - 1 || tmp[i + 1]) && (y === 0 || tmp[i - w]) && (y === h - 1 || tmp[i + w]))) continue;
+      const qr = mapv(L0, p0[i]), qg = mapv(L1, p1[i]), qb = mapv(L2, p2[i]);
+      const dr = f0[i] - qr, dg = f1[i] - qg, db = f2[i] - qb, d = Math.sqrt(dr * dr + dg * dg + db * db);
+      if (d < 2.5 * (tYw + 0.4 * EG[i])) obj[i] = 0;
+    }
+    // Soft, exact edges: a guided filter makes the cut follow the photo's own edges.
+    for (let i = 0; i < n; i++) {
+      const dr = f0[i] - mapv(L0, p0[i]), dg = f1[i] - mapv(L1, p1[i]), db = f2[i] - mapv(L2, p2[i]);
+      tmp[i] = ok[i] ? Math.min(1, Math.sqrt(dr * dr + dg * dg + db * db) / 160) : 0;
+    }
+    guided1(tmp, obj, w, h, Math.max(1, Math.round(w / 240)), 0.0012, alpha);
+    for (let i = 0; i < n; i++) if (!ok[i]) alpha[i] = 0;
+    blur121U8(shadow, w, h);
+    return { alpha, shadow, fit };
+  }
+  // Chamfer distance (in thirds of a pixel) to the nearest pixel where src equals val.
+  function distTo(src, val, w, h, d) {
+    const n = w * h, INF = 65535;
+    for (let i = 0; i < n; i++) d[i] = src[i] === val ? 0 : INF;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      let v = d[i];
+      if (x > 0 && d[i - 1] + 3 < v) v = d[i - 1] + 3;
+      if (y > 0) {
+        if (d[i - w] + 3 < v) v = d[i - w] + 3;
+        if (x > 0 && d[i - w - 1] + 4 < v) v = d[i - w - 1] + 4;
+        if (x < w - 1 && d[i - w + 1] + 4 < v) v = d[i - w + 1] + 4;
+      }
+      d[i] = v;
+    }
+    for (let y = h - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--) {
+      const i = y * w + x;
+      let v = d[i];
+      if (x < w - 1 && d[i + 1] + 3 < v) v = d[i + 1] + 3;
+      if (y < h - 1) {
+        if (d[i + w] + 3 < v) v = d[i + w] + 3;
+        if (x < w - 1 && d[i + w + 1] + 4 < v) v = d[i + w + 1] + 4;
+        if (x > 0 && d[i + w - 1] + 4 < v) v = d[i + w - 1] + 4;
+      }
+      d[i] = v;
+    }
+  }
+  function blur121U8(a, w, h) {
+    const n = w * h, s = buf('bu8s', n), o = buf('bu8o', n), t = buf('bu8t', n);
+    for (let i = 0; i < n; i++) s[i] = a[i];
+    blur121(s, w, h, o, t);
+    for (let i = 0; i < n; i++) a[i] = o[i] + 0.5;
+  }
+  // Guided filter on one guide channel (He et al.): alpha that is locally a linear function of it.
+  function guided1(I, m, w, h, r, eps, out) {
+    const n = w * h, t = buf('g1T', n), x = buf('g1X', n), p = buf('g1P', n);
+    const mI = buf('g1mI', n), mp = buf('g1mp', n), mII = buf('g1mII', n), mIp = buf('g1mIp', n), A = buf('g1A', n), B = buf('g1B', n);
+    for (let i = 0; i < n; i++) p[i] = m[i];
+    boxMean(I, w, h, r, mI, t); boxMean(p, w, h, r, mp, t);
+    for (let i = 0; i < n; i++) x[i] = I[i] * I[i];
+    boxMean(x, w, h, r, mII, t);
+    for (let i = 0; i < n; i++) x[i] = I[i] * p[i];
+    boxMean(x, w, h, r, mIp, t);
+    for (let i = 0; i < n; i++) {
+      const v = mII[i] - mI[i] * mI[i], c = mIp[i] - mI[i] * mp[i], a = c / (v + eps);
+      A[i] = a; B[i] = mp[i] - a * mI[i];
+    }
+    boxMean(A, w, h, r, mII, t); boxMean(B, w, h, r, mIp, t);
+    for (let i = 0; i < n; i++) out[i] = clamp((mII[i] * I[i] + mIp[i]) * 255 + 0.5, 0, 255);
   }
   // Puts a mask into a canvas: white (or black for shadows) with that alpha.
   function maskCanvas(c, a, w, h, white) {
@@ -528,12 +973,15 @@ const Fx = (() => {
       const src = mask ? await this.fillFor(k) : null;
       // From here on nothing waits, so the scratch canvases are safe to share.
       const W0 = this.m.w, H0 = this.m.h, kh = Math.round((kw * H0) / W0), S = M.scale(kw / W0, kh / H0);
+      // Both shrink with the same smoothing, so fine detail (wood grain, edges) matches.
       const A = scratch('kA', kw, kh), ax = ctxR(A);
       ax.setTransform(1, 0, 0, 1, 0, 0); ax.globalCompositeOperation = 'source-over'; ax.globalAlpha = 1; ax.clearRect(0, 0, kw, kh);
+      ax.imageSmoothingEnabled = true; ax.imageSmoothingQuality = 'high';
       this.paintClean(ax, S, { f, img, mask, src }, 'kE');
       const Fd = ax.getImageData(0, 0, kw, kh).data;
       const B = scratch('kB', kw, kh), bx = ctxR(B);
       bx.setTransform(1, 0, 0, 1, 0, 0); bx.clearRect(0, 0, kw, kh);
+      bx.imageSmoothingEnabled = true; bx.imageSmoothingQuality = 'high';
       M.set(bx, M.mul(S, M.mul(M.inv(M.sim(this.alignOf(f.id))), M.sim(this.plateSim()))));
       bx.drawImage(plate, 0, 0, W0, H0);
       const Pd = bx.getImageData(0, 0, kw, kh).data;
@@ -1087,8 +1535,24 @@ const Fx = (() => {
   }
 
   // ---------- the camera screen: live magic background, effects and framing ----------
+  // Shrinks a picture (the camera, a photo, the empty set) to w×h through a half-way size with
+  // smoothing, the same way for all of them, so fine detail (wood grain, edges) shrinks alike.
+  function shrink(src, sw, sh, w, h, name) {
+    let s = src;
+    if (sw > 3 * w) {
+      const m = scratch(name + 'Mid', w * 2, h * 2), mx = m.getContext('2d');
+      mx.setTransform(1, 0, 0, 1, 0, 0); mx.imageSmoothingEnabled = true; mx.imageSmoothingQuality = 'high';
+      mx.drawImage(src, 0, 0, w * 2, h * 2);
+      s = m;
+    }
+    const c = scratch(name, w, h), x = ctxR(c);
+    x.setTransform(1, 0, 0, 1, 0, 0); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+    x.drawImage(s, 0, 0, w, h);
+    return x.getImageData(0, 0, w, h).data;
+  }
   const Live = {
     canvas: null, raf: 0, plate: null, mask: null, shadow: null, ghost: null, ghostSrc: '', bgImg: null, on: false,
+    fit: null, ticks: 0, past: [],
     get m() { return S.movie; },   // always the movie on the camera screen
     async start(canvas) {
       this.stop();
@@ -1107,13 +1571,12 @@ const Fx = (() => {
       const m = this.m;
       if (!m) return;
       const rec = await DB.get('aux', `${m.id}/plate`);
-      this.plate = null;
+      this.plate = null; this.fit = null; this.ticks = 0; this.past = [];
       if (rec) {
         const img = await decodeImage(rec.full).catch(() => null);
         if (img) {
-          const kw = LIVE_KW, kh = Math.round((kw * (m.h || rec.h)) / (m.w || rec.w)), c = mk(kw, kh), x = ctxR(c);
-          x.drawImage(img, 0, 0, kw, kh);
-          this.plate = { w: kw, h: kh, data: x.getImageData(0, 0, kw, kh).data, made: !!rec.made };
+          const kw = LIVE_KW, kh = Math.round((kw * (m.h || rec.h)) / (m.w || rec.w));
+          this.plate = { w: kw, h: kh, data: shrink(img, img.width || img.naturalWidth, img.height || img.naturalHeight, kw, kh, 'livePlate').slice(), made: !!rec.made };
           if (img.close) img.close();
         }
       }
@@ -1121,15 +1584,25 @@ const Fx = (() => {
       this.bgImg = bg ? await decodeImage(bg.blob).catch(() => null) : null;
       this.ghostSrc = '';
     },
-    // From the camera watch loop: cut the toys out of the live picture.
+    // From the camera watch loop: cut the toys out of the live picture. The empty set is lined up
+    // with the camera each time, starting from last time's fit (from scratch now and then, in case
+    // the iPad was bumped); each pixel shows the middle of its last three cut-outs, so camera noise
+    // doesn't make the edges flicker.
     update(src) {
       if (!this.on || !this.bgOn) return;
-      const [vw] = sourceSize(src);
+      const [vw, vh] = sourceSize(src);
       if (!vw) return;
-      const { w, h } = this.plate, c = scratch('liveGrab', w, h), x = ctxR(c);
-      x.setTransform(1, 0, 0, 1, 0, 0); x.drawImage(src, 0, 0, w, h);
-      const res = keyMask(x.getImageData(0, 0, w, h).data, this.plate.data, w, h, this.m.edit.scene.cut, this.m.edit.scene.shadows !== false);
-      this.mask = maskCanvas(this.mask || mk(w, h), res.alpha, w, h, true);
+      const { w, h } = this.plate, ed = this.m.edit, warm = !!this.fit && this.ticks++ % 8 !== 0;
+      const res = keyMask(shrink(src, vw, vh, w, h, 'liveGrab'), this.plate.data, w, h, ed.scene.cut, ed.scene.shadows !== false, warm ? { fit: this.fit } : {});
+      this.fit = res.fit;
+      const a = res.alpha, [p1, p2] = this.past;
+      this.past = [a, p1];
+      let out = a;
+      if (p1 && p2 && p2.length === a.length) {
+        out = new Uint8Array(a.length);
+        for (let i = 0; i < a.length; i++) { const x = a[i], y = p1[i], z = p2[i], lo = x < y ? x : y, hi = x < y ? y : x; out[i] = hi < z ? hi : lo > z ? lo : z; }
+      }
+      this.mask = maskCanvas(this.mask || mk(w, h), out, w, h, true);
       this.shadow = maskCanvas(this.shadow || mk(w, h), res.shadow, w, h, false);
     },
     // The see-through ghost of the last photo, cut out too.
@@ -1137,9 +1610,8 @@ const Fx = (() => {
       if (!this.bgOn || !img || !img.complete || !img.naturalWidth) { this.ghost = null; return; }
       if (this.ghostSrc === img.src) return;
       this.ghostSrc = img.src;
-      const { w, h } = this.plate, c = scratch('ghostGrab', w, h), x = ctxR(c);
-      x.drawImage(img, 0, 0, w, h);
-      const res = keyMask(x.getImageData(0, 0, w, h).data, this.plate.data, w, h, this.m.edit.scene.cut, this.m.edit.scene.shadows !== false);
+      const { w, h } = this.plate;
+      const res = keyMask(shrink(img, img.naturalWidth, img.naturalHeight, w, h, 'ghostGrab'), this.plate.data, w, h, this.m.edit.scene.cut, this.m.edit.scene.shadows !== false);
       const gw = 960, gh = Math.round((gw * h) / w), g = this.ghost && this.ghost.width === gw ? this.ghost : mk(gw, gh), gx = g.getContext('2d');
       gx.setTransform(1, 0, 0, 1, 0, 0); gx.globalCompositeOperation = 'source-over'; gx.clearRect(0, 0, gw, gh); gx.drawImage(img, 0, 0, gw, gh);
       gx.globalCompositeOperation = 'destination-in'; gx.drawImage(maskCanvas(mk(w, h), res.alpha, w, h, true), 0, 0, gw, gh);
