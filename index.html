@@ -529,8 +529,15 @@ const DB = {
         // Everything the Studio keeps: lined-up photos, eraser masks, the empty set, voices ("<movie>/...").
         if (!have.contains('aux')) db.createObjectStore('aux', { keyPath: 'id' });
       };
-      req.onsuccess = () => { this.db = req.result; resolve(); };
+      req.onsuccess = () => {
+        this.db = req.result;
+        // A newer version opened in another tab: let it update the storage, then reload into it.
+        this.db.onversionchange = () => { this.db.close(); location.reload(); };
+        resolve();
+      };
       req.onerror = () => reject(req.error);
+      // An older copy of the app is still open somewhere and holds the storage: say so instead of showing nothing.
+      req.onblocked = () => { $('#movieGrid').innerHTML = '<p class="hint">Stop Motion is open in another tab or window. Close it there, and your movies will show up here.</p>'; };
     });
   },
   // Runs work(tx) in one transaction; resolves once it commits.
