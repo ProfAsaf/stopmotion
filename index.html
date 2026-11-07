@@ -74,12 +74,12 @@ body[data-screen=studio] #studio{display:grid}
 .icon-btn b.off{background:var(--panel3);color:var(--muted)}
 .title-btn{font-weight:800;font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:45%;padding:6px 8px;border-radius:10px}
 .spacer{flex:1}
-#stage{grid-area:stage;position:relative;background:#000;overflow:hidden;margin:0 6px 0 12px}
+#stage{grid-area:stage;position:relative;background:#000;overflow:hidden;margin:0 6px 0 12px;touch-action:none}
 #stage video,#stage .ghost,#glowCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;transform-origin:50% 50%}
 #sceneCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 body.scene-bg #stage .ghost{visibility:hidden}
 #frameMask{position:absolute;pointer-events:none;box-shadow:0 0 0 200vmax rgba(8,5,18,.62);outline:2px solid rgba(255,255,255,.7);border-radius:2px}
-#stage.framing{touch-action:none;cursor:grab}
+.zoom-chip{position:absolute;left:12px;bottom:12px;padding:8px 14px;border-radius:999px;background:rgba(15,10,30,.85);color:#fff;font-weight:800;font-size:15px;box-shadow:0 4px 14px rgba(0,0,0,.4)}
 .icon-btn.on{background:var(--sky);color:#03263b}
 .ghost{opacity:.45;pointer-events:none}
 #ghost2{opacity:.22}
@@ -157,10 +157,17 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
 .popover h3{margin:0 0 6px;font-size:20px}
 .row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 6px;font-weight:700}
 .popover .pill{margin-top:14px}
-.popover.wide{width:min(470px,calc(100vw - 24px));max-height:calc(100vh - env(safe-area-inset-top) - 90px);overflow-y:auto;-webkit-overflow-scrolling:touch}
+/* Magic scene: a panel beside the live picture, like the Studio's */
+.shoot-panel{grid-area:panel;overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--panel);border-left:1px solid var(--line);padding:12px 14px 20px;min-height:0}
+.shoot-panel .ph{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.shoot-panel h3{margin:0;font-size:20px}
+body.scene-open #shoot{grid-template-columns:minmax(0,1fr) 330px 140px;grid-template-areas:"top top side" "stage panel side" "strip panel side"}
 .popover .st-row .pill,.popover .st-box .pill{margin-top:0}
 
 @media (orientation:portrait){
+  body.scene-open #shoot{grid-template-columns:minmax(0,1fr);grid-template-rows:60px minmax(0,1fr) minmax(0,42vh) 150px;grid-template-areas:"top" "stage" "panel" "side"}
+  body.scene-open #strip{display:none}
+  .shoot-panel{border-left:0;border-top:1px solid var(--line)}
   #shoot{grid-template-columns:minmax(0,1fr);grid-template-rows:60px minmax(0,1fr) 92px 150px;grid-template-areas:"top" "stage" "strip" "side"}
   #stage{margin:0 12px}
   .side{flex-direction:row;border-left:0;border-top:1px solid var(--line);padding:12px 18px}
@@ -273,7 +280,6 @@ body[data-screen=studio] .fake-panel,body[data-screen=home] .fake-panel{display:
     <button class="title-btn" id="movieTitle" aria-label="Rename movie"></button>
     <span class="chip" id="frameCount"></span>
     <span class="spacer"></span>
-    <button class="icon-btn" id="frameBtn" aria-label="Frame: zoom, move and straighten"><i data-icon="crop"></i></button>
     <button class="icon-btn" id="sceneBtn" aria-label="Magic scene"><i data-icon="wand"></i></button>
     <button class="icon-btn" id="ghostBtn" aria-label="Ghost photos"><i data-icon="ghost"></i><b id="ghostBadge">1</b></button>
     <button class="icon-btn" id="settingsBtn" aria-label="Settings"><i data-icon="gear"></i></button>
@@ -286,6 +292,7 @@ body[data-screen=studio] .fake-panel,body[data-screen=home] .fake-panel{display:
     <canvas id="sceneCanvas" hidden></canvas>
     <canvas id="glowCanvas" hidden></canvas>
     <div id="frameMask" hidden></div>
+    <button id="zoomChip" class="zoom-chip" hidden aria-label="Back to the whole picture"></button>
     <div id="chip" class="stage-chip" hidden></div>
     <div id="countdown" hidden></div>
     <div id="flash"></div>
@@ -342,6 +349,7 @@ body[data-screen=studio] .fake-panel,body[data-screen=home] .fake-panel{display:
         <li><b>Use a lamp</b> and close the curtains, so the light stays the same.</li>
         <li><b>Stick toys down</b> with poster putty so they don't tip over.</li>
         <li><b>Move things a tiny bit</b> between photos. The see-through ghost shows your last photo.</li>
+        <li><b>Zoom with your fingers</b> instead of moving the iPad: pinch the picture, drag it, or twist two fingers to straighten it. Double-tap to go back to the whole picture.</li>
       </ol>
       <button class="pill primary" id="tipsOk">Got it!</button>
     </div></div>
@@ -380,14 +388,14 @@ body[data-screen=studio] .fake-panel,body[data-screen=home] .fake-panel{display:
   <div id="settings" class="popover" hidden>
     <h3>Settings</h3>
     <div id="fpsPick"></div>
+    <div class="row"><span>Shape</span><div class="seg" id="shapeSeg"></div></div>
     <p class="hint">Photos per second. More photos per second looks smoother but takes more photos.</p>
     <div class="row"><span>Ghost photos</span><div class="seg" id="onionSeg"></div></div>
     <div class="row"><span>Bump alarm</span><div class="seg" id="bumpSeg"></div></div>
     <div class="row"><span>Sounds</span><div class="seg" id="soundSeg"></div></div>
     <button class="pill" id="tipsBtn">Setup tips</button>
   </div>
-  <div id="scenePop" class="popover wide" hidden></div>
-  <div id="framePop" class="popover" hidden></div>
+  <aside id="scenePanel" class="shoot-panel" hidden></aside>
 </section>
 
 <!-- ================= STUDIO (editing) ================= -->
@@ -456,7 +464,7 @@ const PHOTO_Q = 0.84;    // JPEG quality: a third smaller than 0.9 and looks the
 const SMALL_W = 160;     // width of the tiny copies used to watch the camera
 const FPS_CHOICES = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15];   // photos per second, slow motion to fast
 const TICK_MS = 120;     // how often the camera is checked
-const VERSION = 4;       // shown on the home screen, so you can tell an update arrived
+const VERSION = 5;       // shown on the home screen, so you can tell an update arrived
 
 const ICONS = {
   home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/>',
@@ -1033,6 +1041,8 @@ async function openMovie(id, opts = {}) {
 // Leaves the camera screen but keeps the movie (for the Studio).
 function pauseShoot() {
   stopTick(); stopCamera(); hideCamHelp(); Wake.off(); closePreview(); closePops();
+  document.body.classList.remove('scene-open'); $('#scenePanel').hidden = true;
+  fingers.clear(); gest = null;
   $('#bump').hidden = true; $('#tipsMsg').hidden = true; $('#plateMsg').hidden = true;
   document.body.classList.remove('bumped', 'glow');
   S.realigning = false; S.glow = false; S.autoArmed = false; S.countdown = false;
@@ -1547,12 +1557,16 @@ function seg(el, options, value, onPick) {
   }
 }
 function toggleSettings() {
-  togglePop('settings', () => {
+  const pop = $('#settings');
+  if (!pop.hidden) { pop.hidden = true; return; }
+  pop.hidden = false;
+  {
     $('#fpsPick').replaceChildren(Studio.ui.speed(S.movie.fps, setFps));
+    seg($('#shapeSeg'), [['orig', 'Camera'], ['wide', 'Wide'], ['tv', 'TV'], ['square', 'Square'], ['tall', 'Tall']], S.movie.edit.frame.shape, (v) => { S.movie.edit.frame.shape = v; applyFraming(); saveMovieSoon(); });
     seg($('#onionSeg'), [[0, 'Off'], [1, '1'], [2, '2']], Settings.v.onion, (v) => { Settings.v.onion = v; Settings.save(); applyGhostBadge(); updateGhosts(); });
     seg($('#bumpSeg'), [[true, 'On'], [false, 'Off']], Settings.v.bumpWatch, (v) => { Settings.v.bumpWatch = v; Settings.save(); S.bumpVotes = 0; if (v) Motion.request(); });
     seg($('#soundSeg'), [[true, 'On'], [false, 'Off']], Settings.v.sound, (v) => { Settings.v.sound = v; Settings.save(); });
-  });
+  }
 }
 async function setFps(f) {
   S.movie = { ...S.movie, fps: f, updated: Date.now() };
@@ -1571,19 +1585,7 @@ async function renameMovie() {
 }
 
 // ---------- menus on the camera screen ----------
-const POPS = ['settings', 'scenePop', 'framePop'];
-function closePops(except) {
-  POPS.forEach((id) => { if (id !== except) $('#' + id).hidden = true; });
-  if (except !== 'framePop') { $('#frameBtn').classList.remove('on'); $('#stage').classList.remove('framing'); }
-}
-function togglePop(id, build) {
-  const p = $('#' + id), opening = p.hidden;
-  closePops(id);
-  if (!opening) { closePops(); return; }
-  build();
-  p.hidden = false;
-  if (id === 'framePop') { $('#frameBtn').classList.add('on'); $('#stage').classList.add('framing'); }
-}
+function closePops() { $('#settings').hidden = true; }
 function saveMovieSoon() {
   clearTimeout(saveMovieSoon.t);
   S.exportBlob = null;
@@ -1608,7 +1610,8 @@ function pickImage(cb) {
   inp.click();
 }
 
-// ---------- framing: zoom, move and straighten what the camera films ----------
+// ---------- framing with fingers: pinch to zoom, drag to move, twist to straighten ----------
+// Like the iPad's own camera. Photos are still saved whole; this only chooses what the movie shows.
 function framingOn(f) { return !!f && (f.shape !== 'orig' || f.zoom > 1.001 || Math.abs(f.rot || 0) > 0.0005 || Math.abs(f.cx - 0.5) > 0.001 || Math.abs(f.cy - 0.5) > 0.001); }
 function photoSize() {
   const m = S.movie, [vw, vh] = sourceSize(frameSource());
@@ -1621,7 +1624,7 @@ function applyFraming() {
   const [W0, H0] = m ? photoSize() : [0, 0];
   if (!m || !W0 || !H0 || !framingOn(m.edit.frame)) {
     els.forEach((e) => { e.style.transform = ''; });
-    mask.hidden = true; S.view = { zoom: 1, rot: 0 };
+    mask.hidden = true; $('#zoomChip').hidden = true; S.view = { zoom: 1, rot: 0 };
     return;
   }
   const st = $('#stage'), sw = st.clientWidth, sh = st.clientHeight, g = geomNow(), q = Math.min(sw / W0, sh / H0);
@@ -1632,90 +1635,148 @@ function applyFraming() {
   Object.assign(mask.style, { left: `${(sw - ww) / 2}px`, top: `${(sh - wh) / 2}px`, width: `${ww}px`, height: `${wh}px` });
   mask.hidden = false;
   S.view = { zoom: sig, rot: g.rot };
+  // The little button that says how far in it is zoomed (and turned), and goes back to the whole picture.
+  const f = m.edit.frame, chip = $('#zoomChip'), deg = Math.round(((f.rot || 0) * 180) / Math.PI);
+  chip.hidden = !(g.z > 1.01 || deg);
+  chip.textContent = `↺ ${g.z.toFixed(1)}×${deg ? ` · ${deg}°` : ''}`;
 }
-function renderFramePop() {
-  const p = $('#framePop'), f = S.movie.edit.frame, U = Studio.ui;
-  const upd = () => { applyFraming(); saveMovieSoon(); };
-  p.innerHTML = '';
-  p.append(U.el('h3', null, 'Frame'),
-    U.hint('Zoom in and move the picture to choose what gets filmed, so you don’t have to move the iPad. Drag the picture, or pinch it.'),
-    U.labeled('Shape', U.segEl([['orig', 'Camera'], ['wide', 'Wide'], ['tv', 'TV'], ['square', 'Square'], ['tall', 'Tall']], f.shape, (v) => { f.shape = v; upd(); })),
-    U.slider('Zoom', 1, 3, 0.01, f.zoom, (v) => { f.zoom = v; applyFraming(); }, (v) => { f.zoom = v; upd(); }),
-    U.slider('Turn', -10, 10, 0.1, ((f.rot || 0) * 180) / Math.PI, (v) => { f.rot = (v * Math.PI) / 180; applyFraming(); }, (v) => { f.rot = (v * Math.PI) / 180; upd(); }),
-    U.row(U.btn('↺ Reset', () => { Object.assign(f, { shape: 'orig', zoom: 1, cx: 0.5, cy: 0.5, rot: 0 }); upd(); renderFramePop(); }), U.btn('Done', () => closePops(), 'pill primary')),
-    U.hint('Every photo is still saved whole, so you can change the frame later in the Studio.'));
+function resetZoom() {
+  primeGestures();
+  Object.assign(S.movie.edit.frame, { zoom: 1, rot: 0, cx: 0.5, cy: 0.5 });
+  applyFraming(); saveMovieSoon();
+  toast('Back to the whole picture');
 }
-const framePtrs = new Map();
-let frameDrag = null;
-function frameDown(e) {
-  if (!$('#stage').classList.contains('framing') || (e.target.closest && e.target.closest('button,.popover,.stage-msg'))) return;
-  framePtrs.set(e.pointerId, [e.clientX, e.clientY]);
-  try { $('#stage').setPointerCapture(e.pointerId); } catch (er) { /* fine */ }
+const fingers = new Map();
+let gest = null;
+const midOf = (pts) => [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
+// Where the framed picture sits: the stage centre on screen, the turn, and photo pixels per screen pixel.
+function viewNow() {
+  const st = $('#stage'), r = st.getBoundingClientRect(), g = geomNow(), [ww] = Fx.fitSize(g.cw / g.ch, st.clientWidth, st.clientHeight);
+  return { rot: g.rot, k: g.cw / ww, cx: r.left + st.clientWidth / 2, cy: r.top + st.clientHeight / 2, g };
+}
+// How far (in photo pixels) a screen point is from the middle of the framed picture.
+function offsetAt(v, sx, sy) {
+  const co = Math.cos(v.rot), sn = Math.sin(v.rot), dx = sx - v.cx, dy = sy - v.cy;
+  return [v.k * (co * dx + sn * dy), v.k * (-sn * dx + co * dy)];
+}
+function gestureStart() {
+  const pts = [...fingers.values()];
+  if (!pts.length || !S.movie) { gest = null; return; }
+  const f = S.movie.edit.frame, m = midOf(pts), v = viewNow(), off = offsetAt(v, m[0], m[1]);
+  gest = {
+    anchor: [v.g.cx + off[0], v.g.cy + off[1]], z0: f.zoom || 1, r0: f.rot || 0, turning: false, moved: false,
+    d0: pts.length > 1 ? Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]) || 1 : 0,
+    a0: pts.length > 1 ? Math.atan2(pts[1][1] - pts[0][1], pts[1][0] - pts[0][0]) : 0,
+  };
+}
+// Double-tap, like video on the iPad: back to the whole picture, or zoom in on the tapped spot.
+let tapStart = null, lastTap = null;
+function doubleTap(sx, sy) {
   const f = S.movie.edit.frame;
-  if (framePtrs.size === 2) { const [a, b] = [...framePtrs.values()]; frameDrag = { pinch: true, d0: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, z0: f.zoom }; }
-  else { const g = geomNow(); frameDrag = { x: e.clientX, y: e.clientY, cx: g.cx, cy: g.cy }; }
+  if (f.zoom > 1.01 || Math.abs(f.rot || 0) > 0.001) { resetZoom(); return; }
+  const v = viewNow(), off = offsetAt(v, sx, sy), spot = [v.g.cx + off[0], v.g.cy + off[1]];
+  f.zoom = 2;
+  const off2 = offsetAt(viewNow(), sx, sy), [W0, H0] = photoSize();
+  f.cx = clamp((spot[0] - off2[0]) / W0, 0, 1); f.cy = clamp((spot[1] - off2[1]) / H0, 0, 1);
+  const g = geomNow();
+  f.cx = g.cx / W0; f.cy = g.cy / H0;
+  applyFraming(); saveMovieSoon();
 }
-function frameMove(e) {
-  if (!frameDrag || !framePtrs.has(e.pointerId)) return;
-  framePtrs.set(e.pointerId, [e.clientX, e.clientY]);
-  const f = S.movie.edit.frame, [W0, H0] = photoSize();
-  if (frameDrag.pinch) {
-    if (framePtrs.size < 2) return;
-    const [a, b] = [...framePtrs.values()];
-    f.zoom = clamp((frameDrag.z0 * Math.hypot(a[0] - b[0], a[1] - b[1])) / frameDrag.d0, 1, 3);
-  } else {
-    // Dragging the picture slides the frame the other way across the photo.
-    const st = $('#stage'), q = Math.min(st.clientWidth / W0, st.clientHeight / H0), k = 1 / (q * S.view.zoom);
-    const ddx = (e.clientX - frameDrag.x) * k, ddy = (e.clientY - frameDrag.y) * k, co = Math.cos(S.view.rot), sn = Math.sin(S.view.rot);
-    f.cx = clamp((frameDrag.cx - (ddx * co + ddy * sn)) / W0, 0, 1);
-    f.cy = clamp((frameDrag.cy - (-ddx * sn + ddy * co)) / H0, 0, 1);
+function stageDown(e) {
+  if (!S.movie || S.realigning || (e.target.closest && e.target.closest('button,.stage-msg,#preview'))) return;
+  fingers.set(e.pointerId, [e.clientX, e.clientY]);
+  try { $('#stage').setPointerCapture(e.pointerId); } catch (er) { /* fine */ }
+  tapStart = fingers.size === 1 ? { x: e.clientX, y: e.clientY, t: performance.now() } : null;
+  gestureStart();
+}
+function stageMove(e) {
+  if (!gest || !fingers.has(e.pointerId)) return;
+  fingers.set(e.pointerId, [e.clientX, e.clientY]);
+  const pts = [...fingers.values()], f = S.movie.edit.frame, m = midOf(pts), [W0, H0] = photoSize();
+  if (pts.length > 1) {
+    f.zoom = clamp((gest.z0 * Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])) / gest.d0, 1, 3);
+    let da = Math.atan2(pts[1][1] - pts[0][1], pts[1][0] - pts[0][0]) - gest.a0;
+    if (da > Math.PI) da -= 2 * Math.PI;
+    if (da < -Math.PI) da += 2 * Math.PI;
+    if (Math.abs(da) > 0.12) gest.turning = true;   // a real twist, not a wobbly pinch
+    if (gest.turning) { const r = clamp(gest.r0 + da, -0.2, 0.2); f.rot = Math.abs(r) < 0.015 ? 0 : r; }
   }
+  // Keep the spot that was under the fingers under them.
+  const off = offsetAt(viewNow(), m[0], m[1]);
+  f.cx = clamp((gest.anchor[0] - off[0]) / W0, 0, 1);
+  f.cy = clamp((gest.anchor[1] - off[1]) / H0, 0, 1);
+  gest.moved = true;
   applyFraming();
 }
-function frameUp(e) {
-  framePtrs.delete(e.pointerId);
-  if (framePtrs.size || !frameDrag) return;
-  frameDrag = null;
+function stageUp(e) {
+  if (!fingers.has(e.pointerId)) return;
+  fingers.delete(e.pointerId);
+  if (fingers.size) { tapStart = null; gestureStart(); return; }   // carry on with the fingers still down
+  const now = performance.now(), ts = tapStart;
+  tapStart = null;
+  if (ts && now - ts.t < 350 && Math.hypot(e.clientX - ts.x, e.clientY - ts.y) < 14) {   // a tap
+    if (lastTap && now - lastTap.t < 420 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 60) {
+      lastTap = null; gest = null;
+      doubleTap(e.clientX, e.clientY);
+      return;
+    }
+    lastTap = { x: e.clientX, y: e.clientY, t: now };
+  }
+  const moved = gest && gest.moved;
+  gest = null;
+  if (!moved || !S.movie) return;
   const f = S.movie.edit.frame, g = geomNow(), [W0, H0] = photoSize();
   f.cx = g.cx / W0; f.cy = g.cy / H0;
-  saveMovieSoon();
-  if (!$('#framePop').hidden) renderFramePop();
+  applyFraming(); saveMovieSoon();
 }
 
-// ---------- magic scene on the camera screen ----------
+// ---------- magic scene on the camera screen (a panel beside the picture) ----------
 function applySceneBadge() {
   const s = S.movie && S.movie.edit.scene;
   $('#sceneBtn').classList.toggle('on', !!s && (s.bg !== 'none' || s.fg !== 'none'));
 }
-function renderScenePop() {
-  const p = $('#scenePop'), s = S.movie.edit.scene, U = Studio.ui, plate = Fx.Live.plate;
+const sceneOpen = () => document.body.classList.contains('scene-open');
+function toggleScenePanel(open) {
+  const on = open == null ? !sceneOpen() : open;
+  document.body.classList.toggle('scene-open', on);
+  $('#scenePanel').hidden = !on;
+  if (on) { closePops(); renderScenePanel(); }
+  applyFraming();
+  requestAnimationFrame(() => applyFraming());   // the picture got smaller or bigger
+}
+function renderScenePanel() {
+  const p = $('#scenePanel'), s = S.movie.edit.scene, U = Studio.ui, plate = Fx.Live.plate, top = p.scrollTop;
+  const takeEmpty = () => { toggleScenePanel(false); showPlateMsg(); };
   p.innerHTML = '';
-  p.append(U.el('h3', null, 'Magic scene'));
+  const head = U.el('div', 'ph');
+  head.append(U.el('h3', null, 'Magic scene'), U.btn('Done', () => toggleScenePanel(false), 'pill primary small'));
+  p.append(head);
   const bg = [U.tiles(Art.BACKGROUNDS, s.bg, 'bg', async (id) => {
     s.bg = id; saveMovieSoon(); applySceneBadge();
     if (id === 'photo' && !(await DB.get('aux', `${S.movie.id}/bgphoto`))) { chooseScenePicture(); return; }
     await Fx.Live.reload(); liveGhost();
-    if (id !== 'none' && !Fx.Live.plate) { closePops(); showPlateMsg(); return; }
-    renderScenePop();
+    if (id !== 'none' && !Fx.Live.plate) { takeEmpty(); return; }
+    renderScenePanel();
   })];
   if (s.bg !== 'none') {
     if (plate) {
       bg.push(U.slider('Cut-out', 0, 1, 0.01, s.cut, (v) => { s.cut = v; }, (v) => { s.cut = v; saveMovieSoon(); Fx.Live.ghostSrc = ''; liveGhost(); }),
         U.hint('Slide right if parts of your toys disappear, left if bits of the room show.'),
-        U.row(U.btn('📷 New empty photo', () => { closePops(); showPlateMsg(); }, 'pill small')));
-    } else bg.push(U.box('First take a photo of your set with no toys in it.', U.btn('📷 Take empty photo', () => { closePops(); showPlateMsg(); }, 'pill primary')));
+        U.row(U.btn('📷 New empty photo', takeEmpty, 'pill small')));
+    } else bg.push(U.box('First take a photo of your set with no toys in it.', U.btn('📷 Take empty photo', takeEmpty, 'pill primary')));
     if (s.bg === 'photo') bg.push(U.row(U.btn('🖼️ Choose a picture', chooseScenePicture, 'pill small')));
   }
   p.append(U.sec('Background', bg), U.sec('Effects in front', U.tiles(Art.EFFECTS, s.fg, 'fx', (id) => { s.fg = id; saveMovieSoon(); applySceneBadge(); })),
     U.hint('Photos are saved without the scene, so you can change it later in the Studio.'));
+  p.scrollTop = top;
 }
 function chooseScenePicture() {
   pickImage(async (blob) => {
     await DB.put('aux', { id: `${S.movie.id}/bgphoto`, blob });
     S.movie.edit.scene.bg = 'photo'; saveMovieSoon(); applySceneBadge();
     await Fx.Live.reload(); liveGhost();
-    if (!Fx.Live.plate) { closePops(); showPlateMsg(); return; }
-    if (!$('#scenePop').hidden) renderScenePop();
+    if (!Fx.Live.plate) { toggleScenePanel(false); showPlateMsg(); return; }
+    if (sceneOpen()) renderScenePanel();
   });
 }
 function showPlateMsg() { $('#tipsMsg').hidden = true; $('#plateMsg').hidden = false; Fx.Live.hold = true; }
@@ -1767,8 +1828,8 @@ function wire() {
     toast(Settings.v.onion ? `Ghost: last ${Settings.v.onion === 1 ? 'photo' : '2 photos'}` : 'Ghost off');
   };
   $('#settingsBtn').onclick = toggleSettings;
-  $('#sceneBtn').onclick = () => { primeGestures(); togglePop('scenePop', renderScenePop); };
-  $('#frameBtn').onclick = () => { primeGestures(); togglePop('framePop', renderFramePop); };
+  $('#sceneBtn').onclick = () => { primeGestures(); toggleScenePanel(); };
+  $('#zoomChip').onclick = resetZoom;
   $$('.mode').forEach((b) => {
     b.onclick = () => {
       primeGestures();
@@ -1800,24 +1861,22 @@ function wire() {
   $('#pvClose').onclick = closePreview;
   Studio.wire();
   const st = $('#stage');
-  st.addEventListener('pointerdown', frameDown);
-  st.addEventListener('pointermove', frameMove);
-  st.addEventListener('pointerup', frameUp);
-  st.addEventListener('pointercancel', frameUp);
+  st.addEventListener('pointerdown', stageDown);
+  st.addEventListener('pointermove', stageMove);
+  st.addEventListener('pointerup', stageUp);
+  st.addEventListener('pointercancel', stageUp);
+  // Safari zooms the whole page on a pinch; the camera picture handles pinches itself.
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
   window.addEventListener('resize', () => { if (S.screen === 'shoot') applyFraming(); });
   // Drop the finished animations, or they replay whenever the shoot screen is shown again.
   $('#flash').addEventListener('animationend', () => $('#flash').classList.remove('go'));
   $('#countdown').addEventListener('animationend', () => $('#countdown').classList.remove('pop'));
   document.addEventListener('keydown', onKey);
   document.addEventListener('visibilitychange', onVisibility);
-  // A tap outside a menu closes it (the frame menu stays open while the picture is being dragged).
+  // A tap outside the settings menu closes it.
   document.addEventListener('pointerdown', (e) => {
     const t = e.target, inside = (sel) => !!(t && t.closest && t.closest(sel));
-    for (const [pop, btn] of [['#settings', '#settingsBtn'], ['#scenePop', '#sceneBtn'], ['#framePop', '#frameBtn']]) {
-      const p = $(pop);
-      if (p.hidden || inside(pop) || inside(btn) || (pop === '#framePop' && inside('#stage'))) continue;
-      if (pop === '#framePop') closePops(); else p.hidden = true;
-    }
+    if (!$('#settings').hidden && !inside('#settings') && !inside('#settingsBtn')) $('#settings').hidden = true;
   });
 }
 

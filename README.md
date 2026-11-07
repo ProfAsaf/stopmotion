@@ -10,8 +10,12 @@ The Home Screen app gets far more storage for photos than a browser tab (Chrome 
 - **Ghost photos:** the last photo (or two) shows see-through over the live camera.
 - **Tap, Timer, or Hands-free:** hands-free waits until the hands are out of the picture and everything is still, then snaps.
 - **Bump alarm:** the motion sensors and the camera notice when the iPad moves, and a dot-in-the-ring guide helps put it back.
-- **Frame:** zoom, move and straighten what gets filmed without moving the iPad (drag or pinch the picture).
-- **Magic scene:** take one photo of the empty set, then the toys are cut out live onto a background (sky, space, under the sea, stage, …), with effects like snow, rain or confetti in front.
+- **Zoom with fingers:** like the iPad's own camera, pinch the picture to zoom, drag to move it, and twist two
+  fingers to straighten it. Double-tap goes back to the whole picture (or zooms in on the tapped spot). The
+  shape (wide, square, tall) is in Settings.
+- **Magic scene:** take one photo of the empty set, then the toys are cut out live onto a background (sky, space,
+  under the sea, stage, …), with effects like snow, rain or confetti in front. The choices open in a panel beside
+  the live picture.
 
 Photos are always saved whole, so framing and scenes can be changed later.
 
