@@ -1,19 +1,46 @@
 # Stop Motion
 
-A stop-motion movie maker for iPad, built as a single-page web app.
+A stop-motion movie maker for iPad, built as a web app.
 
 Open https://profasaf.github.io/stopmotion/ in Safari on the iPad, then Share → Add to Home Screen.
+The Home Screen app gets far more storage for photos than a browser tab (Chrome on iPad can run out after a few dozen photos).
+
+## Shooting
 
 - **Ghost photos:** the last photo (or two) shows see-through over the live camera.
 - **Tap, Timer, or Hands-free:** hands-free waits until the hands are out of the picture and everything is still, then snaps.
 - **Bump alarm:** the motion sensors and the camera notice when the iPad moves, and a dot-in-the-ring guide helps put it back.
-- **Play and Make video:** plays the movie at 5–15 photos per second and saves it to Photos as an MP4.
+- **Frame:** zoom, move and straighten what gets filmed without moving the iPad (drag or pinch the picture).
+- **Magic scene:** take one photo of the empty set, then the toys are cut out live onto a background (sky, space, under the sea, stage, …), with effects like snow, rain or confetti in front.
 
-Photos are kept in the browser's storage on the iPad and are never uploaded. Save finished movies to Photos.
+Photos are always saved whole, so framing and scenes can be changed later.
+
+## The Studio (tap Play)
+
+- **Frame:** shape (wide, square, tall), zoom, move and straighten.
+- **Fix:** *Steady camera* lines every photo up with the first (slides and small twists); *Even out the light* removes flicker; the *magic eraser* rubs out feet, hands and other surprises (filled from the empty set or the first photo), and *Find surprises* spots them for you.
+- **Scene:** magic backgrounds (or your own picture) and front effects.
+- **Look:** color looks (old movie, night, comic, …) and lights (spotlight, lightning with thunder, disco, …).
+- **Words:** speech and thought bubbles, shouts, captions, comic words and emoji stickers.
+- **Sound:** record your voice over the movie, music tracks, and sound effects on any photo.
+- **Titles:** opening title in six styles, theater curtains with clapping, and credits.
+- **Speed:** photos per second, hold a photo longer, boomerang.
+
+**Make video** saves an MP4 (H.264, with AAC sound when the iPad supports it) to Photos.
+Nothing changes the photos; every choice is kept with the movie.
+
+## Files
+
+- `index.html`: the app shell, camera screen and storage.
+- `studio.js`: the Studio screen, playback and video export.
+- `fx.js`: lining photos up, light evening, eraser, cut-outs, framing, the timeline and the live camera scene.
+- `art.js`: backgrounds, effects, looks, lights, titles, credits, curtains and stickers, all drawn in code.
+- `audio.js`: sound effects, music, voice recording and the mix.
+- `music/`: tracks by Kevin MacLeod (incompetech.com), CC BY 4.0. See `music/CREDITS.md`.
 
 ## Testing on a computer
 
-Add `?fake` to the address for a simulated camera, with buttons to move the toy, bump the camera and nudge it back.
+Add `?fake` to the address for a simulated camera, with buttons to move the toy, bump the camera, take the toy out (for the empty-set photo) and poke a foot in.
 
 ```bash
 python -m http.server 8765

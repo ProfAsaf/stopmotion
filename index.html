@@ -28,7 +28,7 @@ svg.i{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2.2;stro
 .screen{position:fixed;inset:0;display:none}
 body[data-screen=home] #home{display:block}
 body[data-screen=shoot] #shoot{display:grid}
-body[data-screen=play] #play{display:grid}
+body[data-screen=studio] #studio{display:grid}
 
 /* ---------- shared bits ---------- */
 .pill{display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:999px;background:var(--panel3);font-weight:800;font-size:16px;white-space:nowrap}
@@ -60,6 +60,7 @@ body[data-screen=play] #play{display:grid}
 .sub{color:var(--muted);font-size:14px;margin-top:3px}
 .del{position:absolute;top:8px;right:8px;width:42px;height:42px;border-radius:50%;background:rgba(10,6,20,.6);display:grid;place-items:center;color:#fff}
 .del svg.i{width:20px;height:20px}
+.edit{position:absolute;top:8px;left:8px;height:42px;padding:0 14px 0 10px;border-radius:21px;background:rgba(10,6,20,.66);display:flex;align-items:center;gap:6px;color:#fff;font-weight:800;font-size:15px}
 .card.new{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:190px;background:linear-gradient(135deg,var(--yellow),var(--orange));color:#3a2200;font-weight:800;font-size:22px}
 .card.new .plus{width:66px;height:66px;border-radius:50%;background:rgba(255,255,255,.45);display:grid;place-items:center}
 .card.new .plus svg.i{width:36px;height:36px;stroke-width:3}
@@ -74,7 +75,12 @@ body[data-screen=play] #play{display:grid}
 .title-btn{font-weight:800;font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:45%;padding:6px 8px;border-radius:10px}
 .spacer{flex:1}
 #stage{grid-area:stage;position:relative;background:#000;overflow:hidden;margin:0 6px 0 12px}
-#stage video,#stage .ghost,#glowCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#stage video,#stage .ghost,#glowCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;transform-origin:50% 50%}
+#sceneCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+body.scene-bg #stage .ghost{visibility:hidden}
+#frameMask{position:absolute;pointer-events:none;box-shadow:0 0 0 200vmax rgba(8,5,18,.62);outline:2px solid rgba(255,255,255,.7);border-radius:2px}
+#stage.framing{touch-action:none;cursor:grab}
+.icon-btn.on{background:var(--sky);color:#03263b}
 .ghost{opacity:.45;pointer-events:none}
 #ghost2{opacity:.22}
 body.bumped #ghost1{opacity:.55}
@@ -89,6 +95,9 @@ body.glow .ghost{visibility:hidden}
 @keyframes flash{from{opacity:.85}to{opacity:0}}
 .stage-msg{position:absolute;inset:0;display:flex;flex-direction:column;background:rgba(10,6,22,.86);padding:24px;text-align:center;overflow-y:auto}
 .stage-msg .box{max-width:540px;margin:auto}
+.stage-msg.see-through{background:none;pointer-events:none}
+.stage-msg.see-through .box{pointer-events:auto;margin:auto auto 12px;background:rgba(10,6,22,.9);border-radius:18px;padding:16px 18px}
+.stage-msg .actions{margin-top:4px}
 .stage-msg .detail{margin:16px 0 0;font-size:12px;color:var(--muted);opacity:.8;-webkit-user-select:text;user-select:text;word-break:break-word}
 .stage-msg h2{margin:0 0 10px;font-size:26px}
 .stage-msg p{margin:0 0 16px;color:var(--muted);font-size:17px;line-height:1.45}
@@ -148,6 +157,8 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
 .popover h3{margin:0 0 6px;font-size:20px}
 .row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 6px;font-weight:700}
 .popover .pill{margin-top:14px}
+.popover.wide{width:min(470px,calc(100vw - 24px));max-height:calc(100vh - env(safe-area-inset-top) - 90px);overflow-y:auto;-webkit-overflow-scrolling:touch}
+.popover .st-row .pill,.popover .st-box .pill{margin-top:0}
 
 @media (orientation:portrait){
   #shoot{grid-template-columns:minmax(0,1fr);grid-template-rows:60px minmax(0,1fr) 92px 150px;grid-template-areas:"top" "stage" "strip" "side"}
@@ -157,17 +168,68 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
   .popover{right:12px}
 }
 
-/* ---------- play ---------- */
-#play{grid-template-rows:minmax(0,1fr) auto;background:#07050d}
-.theater{position:relative;overflow:hidden;margin:calc(env(safe-area-inset-top) + 12px) calc(env(safe-area-inset-right) + 12px) 0 calc(env(safe-area-inset-left) + 12px);border-radius:16px;background:#000}
-#playCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
-.curtain{position:absolute;top:0;bottom:0;width:51%;z-index:2;pointer-events:none;background:repeating-linear-gradient(90deg,#7d0c20 0 26px,#b3172f 26px 52px);box-shadow:inset 0 -60px 80px rgba(0,0,0,.45);transition:transform 1.1s cubic-bezier(.6,.05,.3,1)}
-.curtain.left{left:0}
-.curtain.right{right:0}
-#play.open .curtain.left{transform:translateX(-102%)}
-#play.open .curtain.right{transform:translateX(102%)}
-.playbar{display:flex;align-items:center;gap:10px;padding:12px calc(env(safe-area-inset-right) + 12px) calc(env(safe-area-inset-bottom) + 12px) calc(env(safe-area-inset-left) + 12px);flex-wrap:wrap}
-.playbar input[type=range]{flex:1;min-width:140px;accent-color:var(--yellow);height:30px}
+/* ---------- studio (editing) ---------- */
+#studio{grid-template-columns:minmax(0,1fr) 360px;grid-template-rows:60px minmax(0,1fr) 84px 72px;grid-template-areas:"top top" "view panel" "time panel" "tabs tabs";padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);background:#0d0a1a}
+.st-top{grid-area:top;display:flex;align-items:center;gap:10px;padding:0 12px;min-width:0}
+.st-top .pill.on{background:var(--coral);color:#fff}
+.st-view{grid-area:view;position:relative;display:grid;place-items:center;overflow:hidden;margin:0 6px 0 12px;touch-action:none;min-height:0}
+.st-view canvas{grid-area:1/1;background:#000;border-radius:4px}
+#stOver{background:transparent;pointer-events:none}
+.st-time{grid-area:time;display:flex;align-items:center;gap:6px;overflow-x:auto;overflow-y:hidden;padding:0 12px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.st-time::-webkit-scrollbar{display:none}
+.st-thumb{height:58px}
+.st-thumb em{position:absolute;right:3px;top:3px;font-style:normal;font-size:11px;font-weight:800;background:rgba(0,0,0,.66);border-radius:7px;padding:0 4px;line-height:16px}
+.st-chip{flex:none;height:58px;min-width:62px;padding:0 6px;border-radius:9px;background:var(--panel2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.st-chip .emo{font-size:22px;line-height:1}
+.st-chip span:last-child{font-size:11px;font-weight:800;color:var(--muted)}
+.st-chip.off{opacity:.45}
+.st-time .sel{box-shadow:inset 0 0 0 3px var(--yellow)}
+.st-panel{grid-area:panel;overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--panel);border-left:1px solid var(--line);padding:14px 14px 28px;min-height:0}
+.st-tabs{grid-area:tabs;display:flex;justify-content:center;gap:4px;padding:6px 10px;background:var(--panel);border-top:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.st-tab{flex:1;max-width:112px;min-width:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:14px;font-size:12px;font-weight:800;color:var(--muted)}
+.st-tab .emo{font-size:24px;line-height:1.1}
+.st-tab.on{background:var(--panel3);color:var(--ink)}
+.st-sec{margin:0 0 18px}
+.st-sec h4{margin:0 0 8px;font-size:13px;letter-spacing:.06em;color:var(--yellow);text-transform:uppercase}
+.st-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.st-row .label,.st-slider .label{font-weight:800;font-size:14px;min-width:64px}
+.st-slider{display:flex;align-items:center;gap:10px;margin:8px 0}
+.st-range{flex:1;min-width:0;accent-color:var(--yellow);height:32px}
+.st-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:14px;background:var(--panel2);margin:8px 0;text-align:left}
+.st-toggle b{display:block;font-size:16px}
+.st-toggle small{display:block;color:var(--muted);font-size:13px;line-height:1.35;margin-top:2px;font-weight:600}
+.switch{flex:none;width:54px;height:32px;border-radius:16px;background:var(--bg);position:relative;transition:background .15s}
+.switch::after{content:"";position:absolute;left:4px;top:4px;width:24px;height:24px;border-radius:50%;background:#8b83ad;transition:transform .15s,background .15s}
+.switch.on{background:var(--teal)}
+.switch.on::after{transform:translateX(22px);background:#fff}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
+.tile{display:flex;flex-direction:column;align-items:stretch;gap:4px;padding:4px 4px 6px;border-radius:12px;background:var(--panel2);font-size:12px;font-weight:800;color:var(--muted);text-align:center;line-height:1.2}
+.tile img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;display:block;background:#000}
+.tile .emo{font-size:28px;line-height:1.35}
+.tile.on{background:var(--sky);color:#03263b}
+.tiles.sfx{grid-template-columns:repeat(auto-fill,minmax(74px,1fr))}
+.st-box{background:var(--panel2);border-radius:14px;padding:12px;margin:8px 0}
+.st-box .hint{margin-bottom:6px}
+.pill.small{padding:9px 13px;font-size:14px}
+.pill.word{font-family:"Chalkboard SE","Marker Felt","Comic Sans MS",cursive;background:#ff4d3d;color:#fff}
+.emoji-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(50px,1fr));gap:6px}
+.emoji-grid button{font-size:28px;height:52px;border-radius:12px;background:var(--panel2)}
+.st-rec{position:absolute;inset:0;pointer-events:none}
+.st-count{position:absolute;inset:0;display:grid;place-items:center;font-size:min(26vh,180px);font-weight:900;color:#fff;text-shadow:0 6px 30px rgba(0,0,0,.6)}
+.st-count.pop{animation:countpop .8s ease-out}
+.st-recbar{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:rgba(20,10,30,.92);padding:8px 8px 8px 16px;border-radius:999px;pointer-events:auto;white-space:nowrap;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.st-recbar .dot{width:14px;height:14px;border-radius:50%;background:#ff3b3b;animation:blink 1s ease-in-out infinite}
+@keyframes blink{50%{opacity:.25}}
+.meter{width:90px;height:10px;border-radius:5px;background:#000;overflow:hidden}
+.meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--teal),var(--yellow),var(--coral));transition:width .08s}
+.chip.busy{background:var(--panel3);color:var(--ink)}
+@media (orientation:portrait){
+  #studio{grid-template-columns:minmax(0,1fr);grid-template-rows:60px minmax(200px,44vh) 80px minmax(0,1fr) 72px;grid-template-areas:"top" "view" "time" "panel" "tabs"}
+  .st-view{margin:0 12px}
+  .st-panel{border-left:0;border-top:1px solid var(--line)}
+}
+@media (orientation:landscape) and (max-width:900px){#studio{grid-template-columns:minmax(0,1fr) 300px}}
+@media (max-width:640px){.st-top .chip{display:none}.st-top .pill span{display:none}}
 .modal{position:fixed;inset:0;display:grid;place-items:center;background:rgba(6,4,14,.75);z-index:30;padding:20px}
 .modal-card{background:var(--panel2);border-radius:22px;padding:22px;width:min(440px,100%);text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
 .modal-card h3{margin:0;font-size:22px}
@@ -179,6 +241,7 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
 #toast.show{transform:translate(-50%,0);opacity:1}
 .fake-panel{position:fixed;left:10px;bottom:10px;z-index:60;background:rgba(0,0,0,.8);padding:8px;border-radius:12px;display:flex;gap:6px;align-items:center;font-size:12px;flex-wrap:wrap;max-width:440px}
 .fake-panel button{background:#454060;color:#fff;padding:6px 9px;border-radius:8px;font-size:12px;font-weight:700}
+body[data-screen=studio] .fake-panel,body[data-screen=home] .fake-panel{display:none}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -204,6 +267,8 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
     <button class="title-btn" id="movieTitle" aria-label="Rename movie"></button>
     <span class="chip" id="frameCount"></span>
     <span class="spacer"></span>
+    <button class="icon-btn" id="frameBtn" aria-label="Frame: zoom, move and straighten"><i data-icon="crop"></i></button>
+    <button class="icon-btn" id="sceneBtn" aria-label="Magic scene"><i data-icon="wand"></i></button>
     <button class="icon-btn" id="ghostBtn" aria-label="Ghost photos"><i data-icon="ghost"></i><b id="ghostBadge">1</b></button>
     <button class="icon-btn" id="settingsBtn" aria-label="Settings"><i data-icon="gear"></i></button>
   </div>
@@ -212,7 +277,9 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
     <video id="cam" playsinline muted autoplay></video>
     <img id="ghost2" class="ghost" alt="" hidden>
     <img id="ghost1" class="ghost" alt="" hidden>
+    <canvas id="sceneCanvas" hidden></canvas>
     <canvas id="glowCanvas" hidden></canvas>
+    <div id="frameMask" hidden></div>
     <div id="chip" class="stage-chip" hidden></div>
     <div id="countdown" hidden></div>
     <div id="flash"></div>
@@ -244,6 +311,22 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
       <p id="camMsgText"></p>
       <button class="pill primary" id="camRetry">Try again</button>
       <p class="detail" id="camMsgDetail"></p>
+    </div></div>
+
+    <div id="roomMsg" class="stage-msg" hidden><div class="box">
+      <h2>No more room for photos</h2>
+      <p id="roomText"></p>
+      <button class="pill primary" id="roomOk">OK</button>
+      <p class="detail" id="roomDetail"></p>
+    </div></div>
+
+    <div id="plateMsg" class="stage-msg see-through" hidden><div class="box">
+      <h2>Empty set photo</h2>
+      <p>Take your toys out of the picture and keep everything else the same. The app uses this photo to cut your toys out for magic backgrounds.</p>
+      <div class="actions">
+        <button class="pill primary" id="plateTake"><i data-icon="camera"></i>Take empty photo</button>
+        <button class="pill" id="plateCancel">Not now</button>
+      </div>
     </div></div>
 
     <div id="tipsMsg" class="stage-msg" hidden><div class="box">
@@ -297,23 +380,33 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
     <div class="row"><span>Sounds</span><div class="seg" id="soundSeg"></div></div>
     <button class="pill" id="tipsBtn">Setup tips</button>
   </div>
+  <div id="scenePop" class="popover wide" hidden></div>
+  <div id="framePop" class="popover" hidden></div>
 </section>
 
-<!-- ================= PLAY ================= -->
-<section id="play" class="screen">
-  <div class="theater">
-    <canvas id="playCanvas"></canvas>
-    <div class="curtain left"></div><div class="curtain right"></div>
+<!-- ================= STUDIO (editing) ================= -->
+<section id="studio" class="screen">
+  <div class="st-top">
+    <button class="icon-btn" id="stHome" aria-label="All movies"><i data-icon="home"></i></button>
+    <button class="icon-btn" id="stCam" aria-label="Back to the camera"><i data-icon="camera"></i></button>
+    <button class="title-btn" id="stName" aria-label="Rename movie"></button>
+    <span class="chip" id="stLen"></span>
+    <span class="spacer"></span>
+    <span class="chip busy" id="stBusy" hidden></span>
+    <button class="pill" id="stPlay"></button>
+    <button class="pill primary" id="stMake"><i data-icon="film"></i><span>Make video</span></button>
   </div>
-  <div class="playbar">
-    <button class="pill" id="playBack"><i data-icon="left"></i>Back</button>
-    <button class="round primary" id="playPause" aria-label="Play or pause"></button>
-    <input type="range" id="scrub" min="0" max="0" value="0" aria-label="Choose a photo">
-    <span class="chip" id="playLabel"></span>
-    <div class="seg" id="playFps" aria-label="Speed"></div>
-    <button class="round on" id="loopBtn" aria-label="Loop"><i data-icon="loop"></i></button>
-    <button class="pill primary" id="makeVideo"><i data-icon="film"></i>Make video</button>
+  <div class="st-view" id="stView">
+    <canvas id="stCanvas"></canvas>
+    <canvas id="stOver"></canvas>
+    <div id="recBar" class="st-rec" hidden>
+      <div class="st-count" id="recCount" hidden></div>
+      <div class="st-recbar"><span class="dot"></span><b id="recText">Get ready…</b><span class="meter"><i id="recLevel"></i></span><button class="pill danger small" id="recStop">Stop</button></div>
+    </div>
   </div>
+  <div class="st-time" id="stTime"></div>
+  <div class="st-panel" id="stPanel"></div>
+  <nav class="st-tabs" id="stTabs"></nav>
   <div id="exportBox" class="modal" hidden>
     <div class="modal-card">
       <h3 id="exportTitle">Making your movie…</h3>
@@ -329,13 +422,18 @@ body.bumped .shutter{opacity:.35;pointer-events:none}
 
 <div id="toast" hidden></div>
 
+<script src="art.js"></script>
+<script src="fx.js"></script>
+<script src="audio.js"></script>
+<script src="studio.js"></script>
 <script>
 'use strict';
 /* Stop Motion: a stop-motion movie maker for iPad Safari.
    Everything stays on the device. Photos live in IndexedDB, the camera is watched
    through tiny 160px copies (stillness, hands-free snapping, bump alarm), and
-   videos are encoded with WebCodecs into an MP4. Add ?fake to the URL to test
-   with a simulated camera that has buttons to move the toy and bump the camera. */
+   videos are encoded with WebCodecs into an MP4. The Studio (studio.js, with
+   fx.js, art.js and audio.js) adds the editing. Add ?fake to the URL to test with
+   a simulated camera that has buttons to move the toy and bump the camera. */
 
 // ---------- small helpers ----------
 const $ = (s, el = document) => el.querySelector(s);
@@ -346,10 +444,11 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const FAKE = new URLSearchParams(location.search).has('fake');
 const MUXER_URL = 'https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.min.js';
 const MAX_SIDE = 1920;   // longest side of a saved photo
+const PHOTO_Q = 0.84;    // JPEG quality: a third smaller than 0.9 and looks the same in a movie
 const SMALL_W = 160;     // width of the tiny copies used to watch the camera
 const FPS_CHOICES = [5, 8, 10, 12, 15];
 const TICK_MS = 120;     // how often the camera is checked
-const VERSION = 2;       // shown on the home screen, so you can tell an update arrived
+const VERSION = 3;       // shown on the home screen, so you can tell an update arrived
 
 const ICONS = {
   home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/>',
@@ -372,6 +471,8 @@ const ICONS = {
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
   sparkle: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.2 6.2l2.6 2.6M15.2 15.2l2.6 2.6M6.2 17.8l2.6-2.6M15.2 8.8l2.6-2.6"/>',
   pin: '<path d="M12 21s-6-5.5-6-10.5a6 6 0 0 1 12 0C18 15.5 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/>',
+  crop: '<path d="M6.5 2.5v15h15"/><path d="M2.5 6.5h15v15"/>',
+  wand: '<path d="M4 20 15 9"/><path d="M14 4.5v3M12.5 6h3M19 9.5v3M17.5 11h3M18.5 3.5v2M17.5 4.5h2"/>',
 };
 const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
 function hydrateIcons(root = document) { $$('[data-icon]', root).forEach((el) => { el.outerHTML = icon(el.dataset.icon); }); }
@@ -420,11 +521,13 @@ const DB = {
   db: null,
   open() {
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open('stopmotion', 1);
+      const req = indexedDB.open('stopmotion', 2);
       req.onupgradeneeded = () => {
-        const db = req.result;
-        db.createObjectStore('movies', { keyPath: 'id' });
-        db.createObjectStore('frames', { keyPath: 'id' });
+        const db = req.result, have = db.objectStoreNames;
+        if (!have.contains('movies')) db.createObjectStore('movies', { keyPath: 'id' });
+        if (!have.contains('frames')) db.createObjectStore('frames', { keyPath: 'id' });
+        // Everything the Studio keeps: lined-up photos, eraser masks, the empty set, voices ("<movie>/...").
+        if (!have.contains('aux')) db.createObjectStore('aux', { keyPath: 'id' });
       };
       req.onsuccess = () => { this.db = req.result; resolve(); };
       req.onerror = () => reject(req.error);
@@ -451,14 +554,16 @@ const DB = {
     return this.run(['frames', 'movies'], 'readwrite', (tx) => { tx.objectStore('frames').put(frame); tx.objectStore('movies').put(movie); });
   },
   deleteFrames(ids, movie) {
-    return this.run(['frames', 'movies'], 'readwrite', (tx) => {
-      const f = tx.objectStore('frames'); ids.forEach((id) => f.delete(id));
+    return this.run(['frames', 'movies', 'aux'], 'readwrite', (tx) => {
+      const f = tx.objectStore('frames'), a = tx.objectStore('aux');
+      ids.forEach((id) => { f.delete(id); a.delete(`${movie.id}/fx/${id}`); });
       tx.objectStore('movies').put(movie);
     });
   },
   deleteMovie(movie) {
-    return this.run(['frames', 'movies'], 'readwrite', (tx) => {
+    return this.run(['frames', 'movies', 'aux'], 'readwrite', (tx) => {
       const f = tx.objectStore('frames'); movie.frames.forEach((id) => f.delete(id));
+      tx.objectStore('aux').delete(IDBKeyRange.bound(`${movie.id}/`, `${movie.id}/￿`));
       tx.objectStore('movies').delete(movie.id);
     });
   },
@@ -727,10 +832,16 @@ const FakeCam = {
     x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
     x.translate(W / 2, H / 2); x.rotate(this.cam.r); x.translate(-W / 2 - this.cam.x, -H / 2 - this.cam.y);
     x.drawImage(this.world, -160, -140);
-    x.fillStyle = 'rgba(0,0,0,.25)'; x.beginPath(); x.ellipse(t.x, t.y + 52, 50, 12, 0, 0, Math.PI * 2); x.fill();
-    x.fillStyle = '#ffcc33'; x.beginPath(); x.arc(t.x, t.y, 50, 0, Math.PI * 2); x.fill();
-    x.fillStyle = '#222'; x.beginPath(); x.arc(t.x - 16, t.y - 10, 7, 0, Math.PI * 2); x.arc(t.x + 16, t.y - 10, 7, 0, Math.PI * 2); x.fill();
-    x.strokeStyle = '#222'; x.lineWidth = 4; x.beginPath(); x.arc(t.x, t.y + 6, 18, 0.15 * Math.PI, 0.85 * Math.PI); x.stroke();
+    if (!this.toyOut) {
+      x.fillStyle = 'rgba(0,0,0,.25)'; x.beginPath(); x.ellipse(t.x, t.y + 52, 50, 12, 0, 0, Math.PI * 2); x.fill();
+      x.fillStyle = '#ffcc33'; x.beginPath(); x.arc(t.x, t.y, 50, 0, Math.PI * 2); x.fill();
+      x.fillStyle = '#222'; x.beginPath(); x.arc(t.x - 16, t.y - 10, 7, 0, Math.PI * 2); x.arc(t.x + 16, t.y - 10, 7, 0, Math.PI * 2); x.fill();
+      x.strokeStyle = '#222'; x.lineWidth = 4; x.beginPath(); x.arc(t.x, t.y + 6, 18, 0.15 * Math.PI, 0.85 * Math.PI); x.stroke();
+    }
+    if (this.foot) { // someone's foot pokes in at the bottom edge
+      x.fillStyle = '#3b5bdb'; x.beginPath(); x.moveTo(1060, 900); x.lineTo(1150, 620); x.lineTo(1260, 640); x.lineTo(1220, 900); x.fill();
+      x.fillStyle = '#222'; x.beginPath(); x.ellipse(1150, 640, 120, 46, -0.2, 0, Math.PI * 2); x.fill();
+    }
     if (this.hand) {
       const k = clamp((now - this.hand.t0) / this.hand.dur, 0, 1), reach = Math.sin(k * Math.PI);
       const hx = t.x + 30 + Math.sin(now / 90) * 6, hy = t.y - 60 - (1 - reach) * 520;
@@ -753,11 +864,14 @@ const FakeCam = {
     const p = document.createElement('div');
     p.className = 'fake-panel';
     p.innerHTML = '<b>Test camera</b><button data-a="toy">Move toy</button><button data-a="bump">Bump!</button>' +
-      '<button data-a="l">◀</button><button data-a="u">▲</button><button data-a="d">▼</button><button data-a="r">▶</button><button data-a="reset">Reset</button>';
+      '<button data-a="l">◀</button><button data-a="u">▲</button><button data-a="d">▼</button><button data-a="r">▶</button><button data-a="reset">Reset</button>' +
+      '<button data-a="out">Toy out</button><button data-a="foot">Foot</button>';
     p.addEventListener('click', (e) => {
       const a = e.target.dataset.a, n = 6;
       if (a === 'toy') this.moveToy();
       if (a === 'bump') this.bump();
+      if (a === 'out') { this.toyOut = !this.toyOut; e.target.textContent = this.toyOut ? 'Toy in' : 'Toy out'; }
+      if (a === 'foot') this.foot = !this.foot;
       if (a === 'reset') this.cam = { x: 0, y: 0, r: 0 };
       if (a === 'l') this.cam.x -= n;
       if (a === 'r') this.cam.x += n;
@@ -781,6 +895,7 @@ const S = {
   realigning: false, alignedTicks: 0, bumpVotes: 0, suppressBump: false, nextIsCut: false, glow: false,
   tickTimer: 0,
   exportBlob: null,
+  view: { zoom: 1, rot: 0 }, // how the camera picture is framed on screen (see applyFraming)
   capCanvas: document.createElement('canvas'),
   thumbCanvas: document.createElement('canvas'),
 };
@@ -821,8 +936,10 @@ async function renderHome() {
     const n = m.frames.length;
     card.innerHTML = `<div class="poster">${n ? '' : 'No photos yet'}</div><div class="meta"><div class="name"></div>` +
       `<div class="sub">${n} photo${n === 1 ? '' : 's'} · ${(n / (m.fps || 10)).toFixed(1)} seconds</div></div>` +
-      `<button class="del" aria-label="Delete movie">${icon('trash')}</button>`;
+      `<button class="del" aria-label="Delete movie">${icon('trash')}</button>` +
+      (n ? `<button class="edit" aria-label="Edit movie">${icon('wand')}Edit</button>` : '');
     card.querySelector('.name').textContent = m.name;
+    if (n) card.querySelector('.edit').onclick = (e) => { e.stopPropagation(); primeGestures(); openStudio(m.id); };
     if (covers[i] && covers[i].thumb) {
       const u = URL.createObjectURL(covers[i].thumb);
       homeUrls.push(u);
@@ -837,11 +954,11 @@ async function renderHome() {
     };
     grid.appendChild(card);
   });
-  let foot = 'Movies are saved on this device. When one is finished, tap Play, then Make video to save it to Photos.';
+  let foot = 'Movies are saved on this device. When one is finished, tap Play to add titles, music and effects, then Make video to save it to Photos.';
   try {
     if (navigator.storage && navigator.storage.estimate) {
       const est = await navigator.storage.estimate();
-      if (est.usage > 1e6) foot = `${Math.round(est.usage / 1e6)} MB of photos saved on this device. ` + foot;
+      if (est.usage > 1e6) foot = `${mb(est.usage)} of photos saved on this device${est.quota ? ` (room for about ${mb(est.quota)})` : ''}. ` + foot;
     }
   } catch (e) { /* estimate not available */ }
   $('#homeFoot').textContent = `${foot} Version ${VERSION}.`;
@@ -850,7 +967,7 @@ async function renderHome() {
 async function newMovie(existing) {
   let n = existing.length + 1;
   while (existing.some((m) => m.name === `Movie ${n}`)) n++;
-  const m = { id: uid(), name: `Movie ${n}`, created: Date.now(), updated: Date.now(), fps: 10, w: 0, h: 0, frames: [] };
+  const m = Fx.ensureEdit({ id: uid(), name: `Movie ${n}`, created: Date.now(), updated: Date.now(), fps: 10, w: 0, h: 0, frames: [] });
   await DB.put('movies', m);
   openMovie(m.id);
 }
@@ -865,36 +982,58 @@ async function getFull(f) {
   return rec ? rec.full : null;
 }
 
-async function openMovie(id) {
+// Loads a movie and its photos (no camera).
+async function loadMovie(id) {
   const m = await DB.get('movies', id);
-  if (!m) return renderHome();
+  if (!m) return false;
   const recs = await DB.getMany('frames', m.frames);
-  S.movie = m;
+  S.frames.forEach((f) => { URL.revokeObjectURL(f.thumbUrl); if (f.fullUrl) URL.revokeObjectURL(f.fullUrl); });
+  S.movie = Fx.ensureEdit(m);
   S.frames = recs.filter(Boolean).map(toRuntime);
   if (S.frames.length !== m.frames.length) { // repair a movie that lost photos
-    S.movie = { ...m, frames: S.frames.map((f) => f.id) };
+    S.movie = { ...S.movie, frames: S.frames.map((f) => f.id) };
     await DB.put('movies', S.movie);
   }
+  S.exportBlob = null;
+  return true;
+}
+
+async function openMovie(id, opts = {}) {
+  if (!(await loadMovie(id))) return renderHome();
   Object.assign(S, { realigning: false, suppressBump: false, nextIsCut: false, autoArmed: false, countdown: false, bumpVotes: 0, sawMotion: false, exportBlob: null, glow: false });
   show('shoot');
-  $('#bump').hidden = true; $('#preview').hidden = true; $('#settings').hidden = true;
+  $('#bump').hidden = true; $('#preview').hidden = true; closePops();
   document.body.classList.remove('bumped', 'glow');
-  renderTitle(); renderStrip(); refreshLast(); applyMode(); applyGhostBadge();
-  if (!Settings.v.tipsSeen) $('#tipsMsg').hidden = false;
+  renderTitle(); renderStrip(); refreshLast(); applyMode(); applyGhostBadge(); applySceneBadge();
+  if (!Settings.v.tipsSeen && !opts.plate) $('#tipsMsg').hidden = false;
+  if (opts.plate) showPlateMsg(); else hidePlateMsg();
   startCamera();   // not awaited: if the picture never starts, the watch loop notices and explains
   Wake.on();
   startTick();
+  Fx.Live.start($('#sceneCanvas'));
+  applyFraming();
 }
 
-function leaveShoot() {
-  stopTick(); stopCamera(); hideCamHelp(); Wake.off(); closePreview();
-  $('#settings').hidden = true; $('#bump').hidden = true; $('#tipsMsg').hidden = true;
+// Leaves the camera screen but keeps the movie (for the Studio).
+function pauseShoot() {
+  stopTick(); stopCamera(); hideCamHelp(); Wake.off(); closePreview(); closePops();
+  $('#bump').hidden = true; $('#tipsMsg').hidden = true; $('#plateMsg').hidden = true;
   document.body.classList.remove('bumped', 'glow');
   S.realigning = false; S.glow = false; S.autoArmed = false; S.countdown = false;
-  hideCountdown(); setChip(null);
+  hideCountdown(); setChip(null); Fx.Live.stop();
+}
+function leaveShoot() {
+  pauseShoot();
   S.frames.forEach((f) => { URL.revokeObjectURL(f.thumbUrl); if (f.fullUrl) URL.revokeObjectURL(f.fullUrl); });
   S.frames = []; S.movie = null; S.lastAn = null; S.lastG = null;
   renderHome();
+}
+// The Studio: from the camera screen (id null) or straight from a movie card.
+async function openStudio(id, opts = {}) {
+  if (id && !(await loadMovie(id))) return renderHome();
+  if (!S.frames.length) { toast('Take some photos first!'); return; }
+  pauseShoot();
+  Studio.open(opts);
 }
 
 function renderTitle() { $('#movieTitle').textContent = S.movie.name; }
@@ -941,12 +1080,19 @@ async function updateGhosts() {
     }
     img.src = f.fullUrl; img.hidden = false;
   }
+  liveGhost();
   // Only the newest two photos are kept in memory at full size.
   S.frames.forEach((f, i) => {
     if (i >= n - 2) return;
     if (f.fullUrl) { URL.revokeObjectURL(f.fullUrl); f.fullUrl = null; }
     f.full = null;
   });
+}
+// With a magic background on, the ghost is cut out too (drawn by the live scene).
+function liveGhost() {
+  const g = $('#ghost1');
+  if (g.hidden || !g.src) { Fx.Live.ghost = null; Fx.Live.ghostSrc = ''; return; }
+  (g.decode ? g.decode() : Promise.resolve()).then(() => Fx.Live.ghostFrom(g)).catch(() => {});
 }
 function applyGhostBadge() {
   const b = $('#ghostBadge'), k = Settings.v.onion;
@@ -1087,6 +1233,8 @@ function tick() {
   const src = frameSource(), [vw, vh] = sourceSize(src);
   if (!vw || (src instanceof HTMLVideoElement && src.readyState < 2)) return;
   const m = S.movie, W = m.w || vw, H = m.h || vh;
+  const viewKey = `${$('#stage').clientWidth}x${$('#stage').clientHeight}|${vw}x${vh}|${m.w}`;
+  if (viewKey !== S.viewKey) { S.viewKey = viewKey; applyFraming(); }
   const wrongWay = !!m.w && Math.abs(vw / vh - W / H) > 0.03;
   $('#rotateMsg').hidden = !wrongWay;
   if (wrongWay) { S.prevLive = null; return; }
@@ -1094,6 +1242,7 @@ function tick() {
   const live = analyze(Vision.grab(src, SMALL_W, sh), SMALL_W, sh);
   const moving = S.prevLive ? changeFrac(S.prevLive, live, 10) > 0.002 : false;
   S.prevLive = live; S.live = live;
+  if (!S.realigning && $('#plateMsg').hidden) Fx.Live.update(src);   // magic background cut-out
   if (moving) { S.stillTicks = 0; S.sawMotion = true; } else S.stillTicks++;
   if (!Motion.still(400)) S.stillTicks = 0;
 
@@ -1153,8 +1302,9 @@ function updateRealign(live) {
   const lost = est.peak > 0.85 || est.edge;
   const st = $('#stage'), sw = st.clientWidth, sh = st.clientHeight;
   const cw = Math.min(sw, sh * (S.movie.w / S.movie.h));     // on-screen width of the picture
-  const gain = (cw / SMALL_W) * 2.5;
-  let px = -est.dx * gain, py = -est.dy * gain;
+  const gain = (cw / SMALL_W) * 2.5 * S.view.zoom;            // a zoomed-in frame makes every slide look bigger
+  const co = Math.cos(S.view.rot), sn = Math.sin(S.view.rot);
+  let px = -(est.dx * co - est.dy * sn) * gain, py = -(est.dx * sn + est.dy * co) * gain;
   const maxR = Math.min(sw, sh) * 0.4, d = Math.hypot(px, py);
   if (d > maxR) { px *= maxR / d; py *= maxR / d; }
   const okPos = !lost && est.mag < 0.7, okTilt = tilt == null || tilt < 0.35;
@@ -1273,7 +1423,7 @@ async function capture() {
     const t = S.thumbCanvas, tw = 240, th = Math.round((tw * H) / W);
     t.width = tw; t.height = th;
     t.getContext('2d').drawImage(c, 0, 0, tw, th);
-    const [full, thumb] = await Promise.all([toBlob(c, 'image/jpeg', 0.9), toBlob(t, 'image/jpeg', 0.75)]);
+    const [full, thumb] = await Promise.all([toBlob(c, 'image/jpeg', PHOTO_Q), toBlob(t, 'image/jpeg', 0.7)]);
     const frame = { id: uid(), movieId: m.id, full, thumb, small, sw: SMALL_W, sh, g: Motion.snapshot(), cut: S.nextIsCut, t: Date.now() };
     const next = { ...m, w: W, h: H, frames: [...m.frames, frame.id], updated: Date.now() };
     await DB.saveFrame(frame, next);
@@ -1288,10 +1438,29 @@ async function capture() {
     if (Settings.v.mode === 'auto' && S.autoArmed) setChip('Move your toy, then step back');
   } catch (e) {
     console.error(e);
-    toast('Oops, that photo could not be saved');
+    photoSaveFailed(e);
   } finally {
     S.capturing = false;
   }
+}
+
+async function storageInfo() {
+  try { return navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null; } catch (e) { return null; }
+}
+const mb = (b) => `${Math.round(b / 1e6)} MB`;
+// A photo didn't save. Usually the browser has run out of room for this app: say so plainly, with numbers.
+async function photoSaveFailed(e) {
+  const st = await storageInfo(), name = (e && e.name) || 'Error';
+  const nearFull = !!(st && st.quota && st.usage > st.quota * 0.85);
+  if (!(name === 'QuotaExceededError' || nearFull || /quota|space|room|disk/i.test((e && e.message) || ''))) {
+    toast(`Oops, that photo could not be saved (${name})`);
+    return;
+  }
+  S.autoArmed = false; applyMode();
+  const room = st && st.quota ? `This browser lets the app keep about ${mb(st.quota)}, and ${mb(st.usage)} is used. ` : '';
+  $('#roomText').textContent = `${room}To keep going, open the app in Safari and tap Share, then Add to Home Screen. Open Stop Motion from that icon: it gets much more room. Deleting old movies also frees space, and the iPad itself may be full (Settings → General → iPad Storage).`;
+  $('#roomDetail').textContent = [name, ((e && e.message) || '').slice(0, 80), st ? `${mb(st.usage)} of ${mb(st.quota || 0)}` : 'no estimate', camDiagnostics()].filter(Boolean).join(' · ');
+  $('#roomMsg').hidden = false;
 }
 
 async function undo() {
@@ -1362,20 +1531,18 @@ function seg(el, options, value, onPick) {
   }
 }
 function toggleSettings() {
-  const s = $('#settings');
-  if (!s.hidden) { s.hidden = true; return; }
-  seg($('#fpsSeg'), FPS_CHOICES.map((f) => [f, String(f)]), S.movie.fps, setFps);
-  seg($('#onionSeg'), [[0, 'Off'], [1, '1'], [2, '2']], Settings.v.onion, (v) => { Settings.v.onion = v; Settings.save(); applyGhostBadge(); updateGhosts(); });
-  seg($('#bumpSeg'), [[true, 'On'], [false, 'Off']], Settings.v.bumpWatch, (v) => { Settings.v.bumpWatch = v; Settings.save(); S.bumpVotes = 0; if (v) Motion.request(); });
-  seg($('#soundSeg'), [[true, 'On'], [false, 'Off']], Settings.v.sound, (v) => { Settings.v.sound = v; Settings.save(); });
-  s.hidden = false;
+  togglePop('settings', () => {
+    seg($('#fpsSeg'), FPS_CHOICES.map((f) => [f, String(f)]), S.movie.fps, setFps);
+    seg($('#onionSeg'), [[0, 'Off'], [1, '1'], [2, '2']], Settings.v.onion, (v) => { Settings.v.onion = v; Settings.save(); applyGhostBadge(); updateGhosts(); });
+    seg($('#bumpSeg'), [[true, 'On'], [false, 'Off']], Settings.v.bumpWatch, (v) => { Settings.v.bumpWatch = v; Settings.save(); S.bumpVotes = 0; if (v) Motion.request(); });
+    seg($('#soundSeg'), [[true, 'On'], [false, 'Off']], Settings.v.sound, (v) => { Settings.v.sound = v; Settings.save(); });
+  });
 }
 async function setFps(f) {
   S.movie = { ...S.movie, fps: f, updated: Date.now() };
   await DB.put('movies', S.movie);
   S.exportBlob = null;
   updateCount();
-  if (S.screen === 'play') Player.seek(Player.i);
 }
 async function renameMovie() {
   const name = prompt('Name your movie', S.movie.name);
@@ -1387,221 +1554,174 @@ async function renameMovie() {
   renderTitle();
 }
 
-// ---------- play screen ----------
-const Player = {
-  i: 0, shown: -1, playing: false, loop: true, raf: 0, t0: 0, token: 0, cache: new Map(), canvas: null, ctx: null,
-  get n() { return S.frames.length; },
-  open() {
-    const m = S.movie;
-    this.canvas = $('#playCanvas');
-    this.canvas.width = m.w || 1280; this.canvas.height = m.h || 720;
-    this.ctx = this.canvas.getContext('2d');
-    this.ctx.fillStyle = '#000'; this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    $('#scrub').max = String(Math.max(0, this.n - 1));
-    this.i = 0; this.shown = -1;
-  },
-  bitmap(k) {
-    if (!this.cache.has(k)) {
-      const f = S.frames[k];
-      this.cache.set(k, f ? getFull(f).then((b) => (b ? decodeImage(b) : null)).catch(() => null) : Promise.resolve(null));
-    }
-    return this.cache.get(k);
-  },
-  // Keep a few decoded photos around the playhead; free the rest.
-  trim(center) {
-    for (const [k, p] of this.cache) {
-      const ahead = (k - center + this.n) % this.n;
-      if (ahead > 6 && ahead < this.n - 2) { this.cache.delete(k); p.then((b) => b && b.close && b.close()); }
-    }
-  },
-  async draw(k) {
-    const token = ++this.token, b = await this.bitmap(k);
-    if (token !== this.token || !b) return;
-    this.ctx.drawImage(b, 0, 0, this.canvas.width, this.canvas.height);
-    this.shown = k;
-    $('#scrub').value = String(k);
-    $('#playLabel').textContent = `${k + 1} / ${this.n}`;
-  },
-  prefetch(k) { for (let j = 1; j <= 4; j++) this.bitmap((k + j) % this.n); this.trim(k); },
-  play() {
-    if (!this.n) return;
-    if (!this.loop && this.i >= this.n - 1) this.i = 0;
-    this.playing = true;
-    this.t0 = performance.now() - (this.i * 1000) / S.movie.fps;
-    cancelAnimationFrame(this.raf);
-    this.frame();
-    setPlayIcon(true);
-  },
-  pause() { this.playing = false; cancelAnimationFrame(this.raf); setPlayIcon(false); },
-  frame() {
-    if (!this.playing) return;
-    const fps = S.movie.fps;
-    let k = Math.floor(((performance.now() - this.t0) * fps) / 1000);
-    if (k >= this.n) {
-      if (this.loop) { this.t0 += (this.n * 1000) / fps; k %= this.n; }
-      else { this.i = this.n - 1; this.draw(this.i); this.pause(); return; }
-    }
-    if (k !== this.i || this.shown === -1) { this.i = k; this.draw(k); this.prefetch(k); }
-    this.raf = requestAnimationFrame(() => this.frame());
-  },
-  seek(k) {
-    this.i = clamp(k, 0, Math.max(0, this.n - 1));
-    this.t0 = performance.now() - (this.i * 1000) / S.movie.fps;
-    this.draw(this.i); this.prefetch(this.i);
-  },
-  close() {
-    this.pause();
-    for (const p of this.cache.values()) p.then((b) => b && b.close && b.close());
-    this.cache.clear();
-  },
-};
-function setPlayIcon(playing) { $('#playPause').innerHTML = icon(playing ? 'pause' : 'play'); }
-
-function openPlayer() {
-  primeGestures();
-  if (!S.frames.length) { toast('Take some photos first!'); return; }
-  stopTick(); closePreview();
-  S.autoArmed = false; S.countdown = false; hideCountdown(); applyMode();
-  $('#settings').hidden = true;
-  show('play');
-  const p = $('#play');
-  p.classList.remove('open'); void p.offsetWidth;
-  Player.open(); Player.seek(0); setPlayIcon(false);
-  seg($('#playFps'), FPS_CHOICES.map((f) => [f, String(f)]), S.movie.fps, setFps);
-  setTimeout(() => p.classList.add('open'), 60);
-  setTimeout(() => { if (S.screen === 'play') Player.play(); }, 700);
+// ---------- menus on the camera screen ----------
+const POPS = ['settings', 'scenePop', 'framePop'];
+function closePops(except) {
+  POPS.forEach((id) => { if (id !== except) $('#' + id).hidden = true; });
+  if (except !== 'framePop') { $('#frameBtn').classList.remove('on'); $('#stage').classList.remove('framing'); }
 }
-function closePlayer() {
-  Player.close();
-  $('#exportBox').hidden = true;
-  show('shoot');
-  playVideo();
-  startTick();
+function togglePop(id, build) {
+  const p = $('#' + id), opening = p.hidden;
+  closePops(id);
+  if (!opening) { closePops(); return; }
+  build();
+  p.hidden = false;
+  if (id === 'framePop') { $('#frameBtn').classList.add('on'); $('#stage').classList.add('framing'); }
+}
+function saveMovieSoon() {
+  clearTimeout(saveMovieSoon.t);
+  S.exportBlob = null;
+  saveMovieSoon.t = setTimeout(() => { if (S.movie) { S.movie.updated = Date.now(); DB.put('movies', S.movie).catch(() => {}); } }, 300);
+}
+// Picks a picture from Photos and hands back a JPEG no bigger than 1920px.
+function pickImage(cb) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = async () => {
+    const file = inp.files && inp.files[0];
+    if (!file) return;
+    try {
+      const img = await decodeImage(file), iw = img.width || img.naturalWidth, ih = img.height || img.naturalHeight;
+      const k = Math.min(1, 1920 / Math.max(iw, ih)), c = document.createElement('canvas');
+      c.width = Math.round(iw * k); c.height = Math.round(ih * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      if (img.close) img.close();
+      cb(await toBlob(c, 'image/jpeg', 0.9));
+    } catch (e) { toast('That picture could not be opened'); }
+  };
+  inp.click();
 }
 
-// ---------- making the video ----------
-function setExportProgress(p) { $('#exportBar').style.width = `${Math.round(p * 100)}%`; }
-async function makeVideo() {
-  primeGestures();
-  if (!S.frames.length) return;
-  Player.pause();
-  $('#exportBox').hidden = false;
-  $('#saveVideo').hidden = true;
-  $('#exportTitle').textContent = 'Making your movie…';
-  $('#exportMsg').textContent = 'Keep this screen open.';
-  setExportProgress(0);
-  if (!S.exportBlob) {
-    try { S.exportBlob = await exportMovie(setExportProgress); }
-    catch (e) {
-      console.error(e);
-      $('#exportTitle').textContent = 'The video could not be made';
-      $('#exportMsg').textContent = String((e && e.message) || e);
-      return;
-    }
+// ---------- framing: zoom, move and straighten what the camera films ----------
+function framingOn(f) { return !!f && (f.shape !== 'orig' || f.zoom > 1.001 || Math.abs(f.rot || 0) > 0.0005 || Math.abs(f.cx - 0.5) > 0.001 || Math.abs(f.cy - 0.5) > 0.001); }
+function photoSize() {
+  const m = S.movie, [vw, vh] = sourceSize(frameSource());
+  return m && m.w ? [m.w, m.h] : [vw, vh];
+}
+function geomNow() { const [W0, H0] = photoSize(); return Fx.frameGeom({ ...S.movie, w: W0, h: H0 }); }
+// The camera picture, ghosts and glow get one CSS transform, so the screen shows exactly the framed part.
+function applyFraming() {
+  const m = S.movie, els = [$('#cam'), $('#ghost1'), $('#ghost2'), $('#glowCanvas')], mask = $('#frameMask');
+  const [W0, H0] = m ? photoSize() : [0, 0];
+  if (!m || !W0 || !H0 || !framingOn(m.edit.frame)) {
+    els.forEach((e) => { e.style.transform = ''; });
+    mask.hidden = true; S.view = { zoom: 1, rot: 0 };
+    return;
   }
-  setExportProgress(1);
-  const mb = (S.exportBlob.size / 1e6).toFixed(1), n = S.frames.length;
-  $('#exportTitle').textContent = 'Your movie is ready!';
-  $('#exportMsg').textContent = `${n} photos · ${(n / S.movie.fps).toFixed(1)} seconds · ${mb} MB`;
-  $('#saveLabel').textContent = navigator.canShare ? 'Save to Photos' : 'Download';
-  $('#saveVideo').hidden = false;
+  const st = $('#stage'), sw = st.clientWidth, sh = st.clientHeight, g = geomNow(), q = Math.min(sw / W0, sh / H0);
+  const [ww, wh] = Fx.fitSize(g.cw / g.ch, sw, sh), sig = ww / (g.cw * q);
+  const dx = (g.cx - W0 / 2) * q, dy = (g.cy - H0 / 2) * q;
+  const tf = `scale(${sig.toFixed(4)}) rotate(${g.rot.toFixed(5)}rad) translate(${(-dx).toFixed(2)}px, ${(-dy).toFixed(2)}px)`;
+  els.forEach((e) => { e.style.transform = tf; });
+  Object.assign(mask.style, { left: `${(sw - ww) / 2}px`, top: `${(sh - wh) / 2}px`, width: `${ww}px`, height: `${wh}px` });
+  mask.hidden = false;
+  S.view = { zoom: sig, rot: g.rot };
+}
+function renderFramePop() {
+  const p = $('#framePop'), f = S.movie.edit.frame, U = Studio.ui;
+  const upd = () => { applyFraming(); saveMovieSoon(); };
+  p.innerHTML = '';
+  p.append(U.el('h3', null, 'Frame'),
+    U.hint('Zoom in and move the picture to choose what gets filmed, so you don’t have to move the iPad. Drag the picture, or pinch it.'),
+    U.labeled('Shape', U.segEl([['orig', 'Camera'], ['wide', 'Wide'], ['tv', 'TV'], ['square', 'Square'], ['tall', 'Tall']], f.shape, (v) => { f.shape = v; upd(); })),
+    U.slider('Zoom', 1, 3, 0.01, f.zoom, (v) => { f.zoom = v; applyFraming(); }, (v) => { f.zoom = v; upd(); }),
+    U.slider('Turn', -10, 10, 0.1, ((f.rot || 0) * 180) / Math.PI, (v) => { f.rot = (v * Math.PI) / 180; applyFraming(); }, (v) => { f.rot = (v * Math.PI) / 180; upd(); }),
+    U.row(U.btn('↺ Reset', () => { Object.assign(f, { shape: 'orig', zoom: 1, cx: 0.5, cy: 0.5, rot: 0 }); upd(); renderFramePop(); }), U.btn('Done', () => closePops(), 'pill primary')),
+    U.hint('Every photo is still saved whole, so you can change the frame later in the Studio.'));
+}
+const framePtrs = new Map();
+let frameDrag = null;
+function frameDown(e) {
+  if (!$('#stage').classList.contains('framing') || (e.target.closest && e.target.closest('button,.popover,.stage-msg'))) return;
+  framePtrs.set(e.pointerId, [e.clientX, e.clientY]);
+  try { $('#stage').setPointerCapture(e.pointerId); } catch (er) { /* fine */ }
+  const f = S.movie.edit.frame;
+  if (framePtrs.size === 2) { const [a, b] = [...framePtrs.values()]; frameDrag = { pinch: true, d0: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, z0: f.zoom }; }
+  else { const g = geomNow(); frameDrag = { x: e.clientX, y: e.clientY, cx: g.cx, cy: g.cy }; }
+}
+function frameMove(e) {
+  if (!frameDrag || !framePtrs.has(e.pointerId)) return;
+  framePtrs.set(e.pointerId, [e.clientX, e.clientY]);
+  const f = S.movie.edit.frame, [W0, H0] = photoSize();
+  if (frameDrag.pinch) {
+    if (framePtrs.size < 2) return;
+    const [a, b] = [...framePtrs.values()];
+    f.zoom = clamp((frameDrag.z0 * Math.hypot(a[0] - b[0], a[1] - b[1])) / frameDrag.d0, 1, 3);
+  } else {
+    // Dragging the picture slides the frame the other way across the photo.
+    const st = $('#stage'), q = Math.min(st.clientWidth / W0, st.clientHeight / H0), k = 1 / (q * S.view.zoom);
+    const ddx = (e.clientX - frameDrag.x) * k, ddy = (e.clientY - frameDrag.y) * k, co = Math.cos(S.view.rot), sn = Math.sin(S.view.rot);
+    f.cx = clamp((frameDrag.cx - (ddx * co + ddy * sn)) / W0, 0, 1);
+    f.cy = clamp((frameDrag.cy - (-ddx * sn + ddy * co)) / H0, 0, 1);
+  }
+  applyFraming();
+}
+function frameUp(e) {
+  framePtrs.delete(e.pointerId);
+  if (framePtrs.size || !frameDrag) return;
+  frameDrag = null;
+  const f = S.movie.edit.frame, g = geomNow(), [W0, H0] = photoSize();
+  f.cx = g.cx / W0; f.cy = g.cy / H0;
+  saveMovieSoon();
+  if (!$('#framePop').hidden) renderFramePop();
 }
 
-async function exportMovie(onProgress) {
-  const { w, h, fps } = S.movie;
-  if (window.VideoEncoder && window.VideoFrame) {
-    try { return await exportWithWebCodecs(w, h, fps, onProgress); }
-    catch (e) { console.warn('WebCodecs export failed, trying the slower way', e); }
-  }
-  if (window.MediaRecorder && HTMLCanvasElement.prototype.captureStream) return exportWithRecorder(w, h, fps, onProgress);
-  throw new Error('This browser can’t make videos. Try updating the iPad.');
+// ---------- magic scene on the camera screen ----------
+function applySceneBadge() {
+  const s = S.movie && S.movie.edit.scene;
+  $('#sceneBtn').classList.toggle('on', !!s && (s.bg !== 'none' || s.fg !== 'none'));
 }
-
-// Fast path: encode each photo as one H.264 frame, then wrap them in an MP4.
-async function exportWithWebCodecs(w, h, fps, onProgress) {
-  await loadScript(MUXER_URL);
-  const { Muxer, ArrayBufferTarget } = window.Mp4Muxer;
-  const mbs = Math.ceil(w / 16) * Math.ceil(h / 16);
-  const level = mbs <= 3600 ? '1f' : mbs <= 8192 ? '28' : '33';
-  const bitrate = Math.round(clamp(w * h * fps * 0.4, 2e6, 12e6));
-  const candidates = [['avc1.6400' + level, 'avc'], ['avc1.4d00' + level, 'avc'], ['avc1.42e0' + level, 'avc'], ['vp09.00.40.08', 'vp9'], ['av01.0.08M.08', 'av1']];
-  let chosen = null;
-  for (const [codec, mux] of candidates) {
-    const cfg = { codec, width: w, height: h, bitrate, framerate: fps };
-    if (mux === 'avc') cfg.avc = { format: 'avc' };
-    try { const s = await VideoEncoder.isConfigSupported(cfg); if (s.supported) { chosen = { cfg, mux }; break; } } catch (e) { /* try the next one */ }
+function renderScenePop() {
+  const p = $('#scenePop'), s = S.movie.edit.scene, U = Studio.ui, plate = Fx.Live.plate;
+  p.innerHTML = '';
+  p.append(U.el('h3', null, 'Magic scene'));
+  const bg = [U.tiles(Art.BACKGROUNDS, s.bg, 'bg', async (id) => {
+    s.bg = id; saveMovieSoon(); applySceneBadge();
+    if (id === 'photo' && !(await DB.get('aux', `${S.movie.id}/bgphoto`))) { chooseScenePicture(); return; }
+    await Fx.Live.reload(); liveGhost();
+    if (id !== 'none' && !Fx.Live.plate) { closePops(); showPlateMsg(); return; }
+    renderScenePop();
+  })];
+  if (s.bg !== 'none') {
+    if (plate) {
+      bg.push(U.slider('Cut-out', 0, 1, 0.01, s.cut, (v) => { s.cut = v; }, (v) => { s.cut = v; saveMovieSoon(); Fx.Live.ghostSrc = ''; liveGhost(); }),
+        U.hint('Slide right if parts of your toys disappear, left if bits of the room show.'),
+        U.row(U.btn('📷 New empty photo', () => { closePops(); showPlateMsg(); }, 'pill small')));
+    } else bg.push(U.box('First take a photo of your set with no toys in it.', U.btn('📷 Take empty photo', () => { closePops(); showPlateMsg(); }, 'pill primary')));
+    if (s.bg === 'photo') bg.push(U.row(U.btn('🖼️ Choose a picture', chooseScenePicture, 'pill small')));
   }
-  if (!chosen) throw new Error('No video encoder available');
-  const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: chosen.mux, width: w, height: h, frameRate: fps }, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
-  let encErr = null;
-  const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { encErr = e; } });
-  enc.configure(chosen.cfg);
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d'), dur = Math.round(1e6 / fps), n = S.frames.length, gop = Math.max(1, fps * 2);
-  for (let i = 0; i < n; i++) {
-    if (encErr) throw encErr;
-    const blob = await getFull(S.frames[i]);
-    const img = await decodeImage(blob);
-    let vf;
-    if (img.width === w && img.height === h && window.ImageBitmap && img instanceof ImageBitmap) vf = new VideoFrame(img, { timestamp: i * dur, duration: dur });
-    else { ctx.drawImage(img, 0, 0, w, h); vf = new VideoFrame(canvas, { timestamp: i * dur, duration: dur }); }
-    enc.encode(vf, { keyFrame: i % gop === 0 });
-    vf.close();
-    if (img.close) img.close();
-    while (enc.encodeQueueSize > 3) await sleep(4);
-    onProgress(((i + 1) / n) * 0.96);
-  }
-  await enc.flush();
-  if (encErr) throw encErr;
-  enc.close();
-  muxer.finalize();
-  return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+  p.append(U.sec('Background', bg), U.sec('Effects in front', U.tiles(Art.EFFECTS, s.fg, 'fx', (id) => { s.fg = id; saveMovieSoon(); applySceneBadge(); })),
+    U.hint('Photos are saved without the scene, so you can change it later in the Studio.'));
 }
-
-// Fallback for older iPads: play the photos onto a canvas and record it in real time.
-async function exportWithRecorder(w, h, fps, onProgress) {
-  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
-  const mime = types.find((t) => MediaRecorder.isTypeSupported(t)) || '';
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d'), n = S.frames.length;
-  let img = await decodeImage(await getFull(S.frames[0]));
-  ctx.drawImage(img, 0, 0, w, h);
-  const rec = new MediaRecorder(canvas.captureStream(fps), mime ? { mimeType: mime, videoBitsPerSecond: 8e6 } : undefined);
-  const chunks = [];
-  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-  const stopped = new Promise((r) => { rec.onstop = r; });
-  rec.start();
-  const t0 = performance.now();
-  for (let i = 0; i < n; i++) {
-    if (i > 0) img = await decodeImage(await getFull(S.frames[i]));
-    const wait = t0 + (i * 1000) / fps - performance.now();
-    if (wait > 0) await sleep(wait);
-    ctx.drawImage(img, 0, 0, w, h);
-    if (img.close) img.close();
-    onProgress((i + 1) / n);
-  }
-  await sleep(1000 / fps + 80);
-  rec.stop();
-  await stopped;
-  return new Blob(chunks, { type: (rec.mimeType || mime || 'video/mp4').split(';')[0] });
+function chooseScenePicture() {
+  pickImage(async (blob) => {
+    await DB.put('aux', { id: `${S.movie.id}/bgphoto`, blob });
+    S.movie.edit.scene.bg = 'photo'; saveMovieSoon(); applySceneBadge();
+    await Fx.Live.reload(); liveGhost();
+    if (!Fx.Live.plate) { closePops(); showPlateMsg(); return; }
+    if (!$('#scenePop').hidden) renderScenePop();
+  });
 }
-
-async function saveVideo() {
-  const blob = S.exportBlob;
-  if (!blob) return;
-  const ext = blob.type.includes('webm') ? 'webm' : 'mp4';
-  const base = (S.movie.name || 'movie').replace(/[^\w\- ]+/g, '').trim() || 'movie';
-  const file = new File([blob], `${base}.${ext}`, { type: blob.type });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); return; }
-    catch (e) { if (e.name === 'AbortError') return; }
-  }
-  const url = URL.createObjectURL(blob), a = document.createElement('a');
-  a.href = url; a.download = file.name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+function showPlateMsg() { $('#tipsMsg').hidden = true; $('#plateMsg').hidden = false; Fx.Live.hold = true; }
+function hidePlateMsg() { $('#plateMsg').hidden = true; Fx.Live.hold = false; }
+// The empty-set photo: the set without toys, used to cut toys out for magic backgrounds.
+async function capturePlate() {
+  const src = frameSource(), [vw, vh] = sourceSize(src), m = S.movie;
+  if (!vw || !m) { toast('The camera is not ready yet'); return; }
+  let W = m.w, H = m.h;
+  if (!W) { const k = Math.min(1, MAX_SIDE / Math.max(vw, vh)); W = Math.round((vw * k) / 2) * 2; H = Math.round((vh * k) / 2) * 2; }
+  else if (Math.abs(vw / vh - W / H) > 0.03) { $('#rotateMsg').hidden = false; return; }
+  const c = S.capCanvas;
+  c.width = W; c.height = H;
+  c.getContext('2d').drawImage(src, 0, 0, W, H);
+  flash(); Sound.shutter();
+  const sh = Math.round((SMALL_W * H) / W), small = Vision.grab(c, SMALL_W, sh), full = await toBlob(c, 'image/jpeg', PHOTO_Q);
+  await DB.put('aux', { id: `${m.id}/plate`, full, small, sw: SMALL_W, sh, w: W, h: H, made: false, t: Date.now() });
+  if (!m.w) { S.movie = { ...m, w: W, h: H, updated: Date.now() }; await DB.put('movies', S.movie); }
+  S.exportBlob = null;
+  hidePlateMsg();
+  await Fx.Live.reload(); liveGhost(); applySceneBadge();
+  toast('Got it! Now put your toys back');
 }
 
 // ---------- wiring ----------
@@ -1610,17 +1730,14 @@ function onKey(e) {
   if (S.screen === 'shoot') {
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onShutter(); }
     else if (e.key === 'Backspace') { e.preventDefault(); undo(); }
-    else if (e.key === 'p') openPlayer();
-    else if (e.key === 'Escape') { closePreview(); $('#settings').hidden = true; }
-  } else if (S.screen === 'play') {
-    if (e.key === ' ') { e.preventDefault(); if (Player.playing) Player.pause(); else Player.play(); }
-    else if (e.key === 'Escape') closePlayer();
-  }
+    else if (e.key === 'p') openStudio(null, { autoplay: true });
+    else if (e.key === 'Escape') { closePreview(); closePops(); }
+  } else if (S.screen === 'studio') Studio.onKey(e);
 }
 function onVisibility() {
   if (document.hidden) {
     if (S.screen === 'shoot') stopCamera();
-    if (S.screen === 'play') Player.pause();
+    if (S.screen === 'studio') Studio.onHidden();
     Wake.off();
   } else if (S.screen === 'shoot') { startCamera(); Wake.on(); }
 }
@@ -1634,6 +1751,8 @@ function wire() {
     toast(Settings.v.onion ? `Ghost: last ${Settings.v.onion === 1 ? 'photo' : '2 photos'}` : 'Ghost off');
   };
   $('#settingsBtn').onclick = toggleSettings;
+  $('#sceneBtn').onclick = () => { primeGestures(); togglePop('scenePop', renderScenePop); };
+  $('#frameBtn').onclick = () => { primeGestures(); togglePop('framePop', renderFramePop); };
   $$('.mode').forEach((b) => {
     b.onclick = () => {
       primeGestures();
@@ -1644,12 +1763,15 @@ function wire() {
   });
   $('#shutter').onclick = onShutter;
   $('#undoBtn').onclick = undo;
-  $('#playBtn').onclick = openPlayer;
+  $('#playBtn').onclick = () => { primeGestures(); openStudio(null, { autoplay: true }); };
   $('#glowBtn').onclick = toggleGlow;
   $('#keepBtn').onclick = keepSpot;
   $('#camRetry').onclick = retryCamera;
   $('#tipsOk').onclick = () => { primeGestures(); Settings.v.tipsSeen = true; Settings.save(); $('#tipsMsg').hidden = true; };
-  $('#tipsBtn').onclick = () => { $('#settings').hidden = true; $('#tipsMsg').hidden = false; };
+  $('#tipsBtn').onclick = () => { closePops(); $('#tipsMsg').hidden = false; };
+  $('#plateTake').onclick = () => { primeGestures(); capturePlate(); };
+  $('#plateCancel').onclick = hidePlateMsg;
+  $('#roomOk').onclick = () => { $('#roomMsg').hidden = true; };
   $('#pvPrev').onclick = () => openPreview(previewIndex - 1);
   $('#pvNext').onclick = () => openPreview(previewIndex + 1);
   $('#pvCopy').onclick = async () => { const i = previewIndex; await duplicateFrameAt(i); openPreview(i + 1); toast('Copied! That moment now lasts longer'); };
@@ -1660,21 +1782,26 @@ function wire() {
     if (S.frames.length) openPreview(Math.min(i, S.frames.length - 1)); else closePreview();
   };
   $('#pvClose').onclick = closePreview;
-  $('#playBack').onclick = closePlayer;
-  $('#playPause').onclick = () => { if (Player.playing) Player.pause(); else Player.play(); };
-  $('#scrub').oninput = (e) => { Player.pause(); Player.seek(Number(e.target.value)); };
-  $('#loopBtn').onclick = () => { Player.loop = !Player.loop; $('#loopBtn').classList.toggle('on', Player.loop); };
-  $('#makeVideo').onclick = makeVideo;
-  $('#saveVideo').onclick = saveVideo;
-  $('#exportClose').onclick = () => { $('#exportBox').hidden = true; };
+  Studio.wire();
+  const st = $('#stage');
+  st.addEventListener('pointerdown', frameDown);
+  st.addEventListener('pointermove', frameMove);
+  st.addEventListener('pointerup', frameUp);
+  st.addEventListener('pointercancel', frameUp);
+  window.addEventListener('resize', () => { if (S.screen === 'shoot') applyFraming(); });
   // Drop the finished animations, or they replay whenever the shoot screen is shown again.
   $('#flash').addEventListener('animationend', () => $('#flash').classList.remove('go'));
   $('#countdown').addEventListener('animationend', () => $('#countdown').classList.remove('pop'));
   document.addEventListener('keydown', onKey);
   document.addEventListener('visibilitychange', onVisibility);
+  // A tap outside a menu closes it (the frame menu stays open while the picture is being dragged).
   document.addEventListener('pointerdown', (e) => {
-    const s = $('#settings'), t = e.target;
-    if (!s.hidden && !s.contains(t) && !(t.closest && t.closest('#settingsBtn'))) s.hidden = true;
+    const t = e.target, inside = (sel) => !!(t && t.closest && t.closest(sel));
+    for (const [pop, btn] of [['#settings', '#settingsBtn'], ['#scenePop', '#sceneBtn'], ['#framePop', '#frameBtn']]) {
+      const p = $(pop);
+      if (p.hidden || inside(pop) || inside(btn) || (pop === '#framePop' && inside('#stage'))) continue;
+      if (pop === '#framePop') closePops(); else p.hidden = true;
+    }
   });
 }
 
